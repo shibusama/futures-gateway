@@ -1,22 +1,47 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
 echo ============================================
-echo  futures-gateway · 本地 CTP (SimNow) 网关
+echo  futures-gateway - Local CTP (SimNow) Gateway
 echo ============================================
 echo.
-if not exist ".venv" (
-    echo [首次运行] 创建虚拟环境并安装依赖...
-    python -m venv .venv
-    call .venv\Scripts\activate.bat
-    pip install -r requirements.txt
-) else (
-    call .venv\Scripts\activate.bat
+
+rem ---- locate python environment (priority order) ----
+rem 1) complete project-local .venv (pip.exe present means complete)
+rem 2) pre-installed external venv: C:\Users\13191\fg-venv
+rem 3) create .venv on the fly
+
+if exist ".venv\Scripts\pip.exe" goto :have_project_venv
+if exist "C:\Users\13191\fg-venv\Scripts\python.exe" goto :have_external_venv
+
+echo [first run] creating virtual environment and installing dependencies...
+python -m venv .venv
+if not exist ".venv\Scripts\pip.exe" (
+    echo.
+    echo [ERROR] failed to create .venv here. Known Windows issue:
+    echo         ensurepip fails when the path contains non-ASCII chars.
+    echo         Create a venv manually at an ASCII path, for example:
+    echo         python -m venv C:\Users\13191\fg-venv
+    echo         C:\Users\13191\fg-venv\Scripts\pip install -r requirements.txt
+    echo         then rerun this script.
+    pause
+    exit /b 1
 )
-echo.
+set "PY=%~dp0.venv\Scripts\python.exe"
+"%PY%" -m pip install --upgrade pip
+"%PY%" -m pip install -r requirements.txt
+goto :run
+
+:have_project_venv
+set "PY=%~dp0.venv\Scripts\python.exe"
+goto :run
+
+:have_external_venv
+set "PY=C:\Users\13191\fg-venv\Scripts\python.exe"
+
+:run
 if not exist "config.json" (
-    echo [提示] 未发现 config.json，已从示例模板生成。
-    echo        请编辑 config.json 填入 SimNow 资金账号和密码后重启。
+    echo [hint] config.json not found - generated from the example template.
+    echo        edit config.json with your SimNow user_id / password and restart.
 )
-python -m gateway.main
+"%PY%" -m gateway.main
 pause

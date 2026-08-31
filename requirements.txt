@@ -1,2 +1,2 @@
-vnpy_ctp
+openctp-ctp
 aiohttp

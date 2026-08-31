@@ -12,7 +12,7 @@ class AccountManager:
         self.config = config
         self.gateways = {}          # account_name -> CtpGateway
         self.clients = set()        # 已连接的 WebSocket 客户端集合
-        self.loop = asyncio.get_event_loop()
+        self.loop = None  # 运行中的事件循环由 run_server 启动后绑定（Python 3.12+ 兼容）
         self._lock = threading.Lock()
         self.last_states = {}       # account_name -> {'login': ..., 'balance': {...}}
 
@@ -34,9 +34,14 @@ class AccountManager:
         """CTP 回调线程调用 → 转投到 asyncio 主循环 → 广播 + 缓存。"""
         acc = event.get("account")
         if event.get("type") == "login":
-            self.last_states.setdefault(acc, {})["login"] = event.get("status")
+            state = self.last_states.setdefault(acc, {})
+            state["login"] = event.get("status")
+            if event.get("msg"):
+                state["login_msg"] = event.get("msg")
         if event.get("type") == "balance":
             self.last_states.setdefault(acc, {})["balance"] = event
+        if self.loop is None:
+            return  # 事件循环未启动，丢弃连接早期事件
         try:
             self.loop.call_soon_threadsafe(self._broadcast, event)
         except RuntimeError:

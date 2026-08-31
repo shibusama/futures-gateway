@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """aiohttp 服务：静态文件（前端）+ WebSocket（实时数据 / 下单指令）。"""
+import asyncio
 import json
 import os
 
@@ -75,4 +76,27 @@ def run_server(mgr, config):
     app = build_app(mgr)
     host = config.get("host", "127.0.0.1")
     port = int(config.get("port", 8765))
-    web.run_app(app, host=host, port=port, print=None)
+
+    # 显式创建事件循环并绑定给账号管理器（Python 3.12+ 不再隐式提供默认循环）
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    mgr.loop = loop
+
+    async def _serve():
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, host, port)
+        await site.start()
+        print(f"  服务已启动: http://{host}:{port}  （Ctrl+C 停止）")
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        finally:
+            await runner.cleanup()
+
+    try:
+        loop.run_until_complete(_serve())
+    except KeyboardInterrupt:
+        print("\n 已停止。")
+    finally:
+        loop.close()
