@@ -43,7 +43,7 @@ jobs:
           git add README.md CHANGELOG.md
           if ! git diff --cached --quiet; then
             git commit -m "docs: auto-sync README & CHANGELOG"
-            git push
+            git push origin HEAD:master
           else
             echo "docs up to date, nothing to commit"
           fi
