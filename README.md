@@ -98,6 +98,7 @@ futures-gateway/
 
 ## 依赖
 
-- Python 3.10+（本项目在 3.14 实测通过）
-- `openctp-ctp`（pip install，自带官方 CTP DLL）
-- `aiohttp`（Web 服务 + WebSocket）
+> 本节由 `scripts/update_readme.py` 自动生成，请勿手改；真相源为 `requirements.txt`。
+
+- `openctp-ctp` — 标准 CTP API 的 Python 直译封装，自带官方 DLL（行情 + 交易）
+- `aiohttp` — 异步 Web 框架：静态前端 + WebSocket 实时推送
