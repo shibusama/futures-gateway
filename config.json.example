@@ -1,0 +1,15 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "flow_dir": "flow",
+  "accounts": [
+    {
+      "name": "SimNow一号",
+      "user_id": "请填写资金账号",
+      "password": "请填写密码",
+      "broker_id": "9999",
+      "trade_front": "tcp://180.168.146.187:10101",
+      "md_front": "tcp://180.168.146.187:10111"
+    }
+  ]
+}

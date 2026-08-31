@@ -1,0 +1,151 @@
+/**
+ * app.js — 应用入口：装配 store / ws / ui 模块，绑定事件，响应网关推送。
+ */
+import { store, totals, emit } from "./store.js";
+import { connect, sendOrder } from "./ws.js";
+import { renderOverview } from "./ui_overview.js";
+import { renderDetail, rerenderChart } from "./ui_detail.js";
+import { bindChartHover } from "./chart.js";
+
+/* ---------- 视图切换 ---------- */
+function showView(v) {
+  store.view = v;
+  document.getElementById("view-overview").style.display = v === "overview" ? "block" : "none";
+  document.getElementById("view-detail").style.display = v === "detail" ? "block" : "none";
+  document.getElementById("nav-overview").className = "nt" + (v === "overview" ? " active" : "");
+  document.getElementById("nav-detail").className = "nt" + (v === "detail" ? " active" : "");
+  render();
+}
+
+/* ---------- 渲染入口 ---------- */
+function render() {
+  renderHeader(store.conn);
+  if (store.view === "overview") renderOverview();
+  else renderDetail();
+}
+
+function renderHeader(conn) {
+  const badge = document.getElementById("conn-badge");
+  badge.textContent = conn === "open" ? "CTP 已连接" : conn === "connecting" ? "连接中" : "未连接";
+  badge.className = "demo-badge " + (conn === "open" ? " ok" : conn === "connecting" ? " wait" : "");
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  // 顶部聚合条
+  if (store.view === "overview") {
+    const t = totals();
+    const cls = (v) => (v >= 0 ? "up" : "down");
+    document.getElementById("acct-strip").innerHTML = `
+      <div class="acct-item"><span>总权益</span><b class="${cls(t.equity)}">${fmtN(t.equity)}</b></div>
+      <div class="acct-item"><span>可用资金</span><b>${fmtN(t.avail)}</b></div>
+      <div class="acct-item"><span>浮动盈亏</span><b class="${cls(t.float)}">${fmtN(t.float)}</b></div>
+      <div class="acct-item"><span>占用保证金</span><b>${fmtN(t.margin)}</b></div>`;
+  } else {
+    const b = store.balances[store.activeAcct];
+    document.getElementById("acct-strip").innerHTML = b
+      ? `<div class="acct-item"><span>该账户权益</span><b>${fmtN(b.balance)}</b></div>
+         <div class="acct-item"><span>可用</span><b>${fmtN(b.available)}</b></div>`
+      : `<div class="acct-item"><span>该账户</span><b>—</b></div>`;
+  }
+}
+function fmtN(v) { return Number(v || 0).toLocaleString("zh-CN", { maximumFractionDigits: 0 }); }
+
+/* ---------- 事件 ---------- */
+function bindEvents() {
+  document.getElementById("nav-overview").addEventListener("click", () => showView("overview"));
+  document.getElementById("nav-detail").addEventListener("click", () => showView("detail"));
+  document.getElementById("back-btn").addEventListener("click", () => showView("overview"));
+
+  // 概览账户行 → 下钻
+  document.getElementById("acct-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-view]");
+    if (btn) { store.activeAcct = btn.getAttribute("data-view"); showView("detail"); }
+  });
+
+  // 行情列表选合约
+  document.getElementById("watchlist").addEventListener("click", (e) => {
+    const b = e.target.closest(".wl-row");
+    if (b) { store.sel = b.getAttribute("data-code"); render(); }
+  });
+
+  // 周期切换
+  document.getElementById("tf-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest(".tf");
+    if (b) { store.tf = b.getAttribute("data-tf"); rerenderChart(); }
+  });
+
+  // 下单面板
+  document.getElementById("dir-buy").addEventListener("click", () => { store.dir = "buy"; render(); });
+  document.getElementById("dir-sell").addEventListener("click", () => { store.dir = "sell"; render(); });
+  document.getElementById("qty-minus").addEventListener("click", () => { store.qty = Math.max(1, store.qty - 1); render(); });
+  document.getElementById("qty-plus").addEventListener("click", () => { store.qty = Math.min(999, store.qty + 1); render(); });
+  document.getElementById("qty-input").addEventListener("change", (e) => { store.qty = Math.max(1, parseInt(e.target.value, 10) || 1); render(); });
+  document.getElementById("otype-market").addEventListener("click", () => { store.otype = "market"; render(); });
+  document.getElementById("otype-limit").addEventListener("click", () => {
+    store.otype = "limit";
+    const t = store.ticks[store.sel];
+    if (t) document.getElementById("limit-input").value = t.price.toFixed(1);
+    render();
+  });
+  document.getElementById("limit-input").addEventListener("change", (e) => { store.limitPx = e.target.value; });
+
+  // 下单
+  document.getElementById("submit-btn").addEventListener("click", () => {
+    const account = store.activeAcct;
+    if (!account) { toast("请先在概览页选择账户"); return; }
+    if (store.conn !== "open") { toast("网关未连接"); return; }
+    const tick = store.ticks[store.sel];
+    if (!tick) { toast("暂无该合约行情"); return; }
+    const price = store.otype === "market" ? (store.dir === "buy" ? (tick.ask1 || tick.price) : (tick.bid1 || tick.price)) : parseFloat(store.limitPx);
+    if (!isFinite(price)) { toast("请输入有效价格"); return; }
+    sendOrder({
+      account, symbol: store.sel, direction: store.dir, offset: "open",
+      price, volume: store.qty,
+    });
+    toast(`已发送 ${store.dir === "buy" ? "买入开多" : "卖出开空"} ${store.qty} 手 委托`);
+  });
+
+  // 持仓/委托页签
+  document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
+  document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
+
+  // K线悬停
+  bindChartHover(document.getElementById("chart-svg"), () => {
+    if (store.view === "detail") rerenderChart();
+  });
+}
+
+/* ---------- toast ---------- */
+let toastTimer = null;
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text;
+  t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display = "none"; }, 3000);
+}
+
+/* ---------- 网关推送 → 渲染 ---------- */
+window.addEventListener("ftd-event", (e) => {
+  const d = e.detail;
+  if (d.type === "conn") { renderHeader(d.status); }
+  else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position") {
+    render();
+  } else if (d.type === "tick") {
+    // 行情节流渲染：只重绘当前视图里受影响的部分
+    if (store.view === "detail" && (d.symbol === store.sel || d.symbol)) render();
+  } else if (d.type === "order" || d.type === "trade") {
+    if (store.view === "detail") renderDetail();
+  } else if (d.type === "error") {
+    toast(d.msg);
+  } else if (d.type === "toast") {
+    toast(d.msg);
+  }
+});
+
+/* ---------- 启动 ---------- */
+bindEvents();
+connect();
+
+// 时钟
+setInterval(() => {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}, 1000);

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>期界 · 期货交易终端（CTP 网关版）</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="brand">
+      <svg class="brand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span>期界 · 期货交易终端</span>
+      <span class="demo-badge" id="conn-badge">未连接</span>
+    </div>
+    <div class="nav-tabs">
+      <button id="nav-overview" class="nt active">多账户概览</button>
+      <button id="nav-detail" class="nt">账户明细</button>
+    </div>
+    <div class="clock" id="clock"></div>
+    <div class="acct" id="acct-strip"></div>
+  </header>
+
+  <!-- 多账户概览 -->
+  <div id="view-overview">
+    <div class="ov-wrap">
+      <div class="ov-stats" id="ov-stats"></div>
+      <div class="panel">
+        <div class="panel-title">账户列表（从 config.json 加载）</div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>账户名称</th><th>账户号</th><th>期货公司</th><th>登录状态</th><th>权益</th><th>可用资金</th><th>浮动盈亏</th><th>保证金</th><th></th></tr></thead>
+          <tbody id="acct-list"></tbody>
+        </table></div>
+        <div class="empty" id="acct-empty" style="display:none">config.json 中未配置账户，或网关未连接</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">按品种汇总 <small>（跨账户合并）</small></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>品种</th><th>多头手数</th><th>空头手数</th><th>净持仓</th><th>浮动盈亏</th></tr></thead>
+          <tbody id="sum-body"></tbody>
+        </table></div>
+        <div class="empty" id="sum-empty" style="display:none">暂无持仓</div>
+      </div>
+      <div class="roadmap" id="roadmap"></div>
+    </div>
+  </div>
+
+  <!-- 账户明细 -->
+  <div id="view-detail" style="display:none">
+    <div style="padding:12px 12px 0;">
+      <div class="panel detail-bar">
+        <button id="back-btn" class="close-btn">← 返回概览</button>
+        <span class="d-name" id="d-name"></span>
+        <span class="ch-exch" id="d-account-id"></span>
+        <div class="d-stats" id="d-stats"></div>
+      </div>
+    </div>
+    <div class="main">
+      <aside class="panel watchlist">
+        <div class="panel-title">行情列表 <span class="live-dot"></span></div>
+        <div class="wl-head"><span>合约</span><span class="right">最新价</span><span class="right">涨跌幅</span></div>
+        <div id="watchlist"></div>
+      </aside>
+      <section class="chart-wrap panel">
+        <div class="chart-head">
+          <div class="ch-left"><span class="ch-name" id="ch-name"></span><span class="ch-exch" id="ch-exch"></span></div>
+          <div class="ch-price"><b id="ch-price"></b><span id="ch-change"></span></div>
+          <div class="tf-tabs" id="tf-tabs"></div>
+        </div>
+        <div class="chart">
+          <div class="ohlc" id="ohlc"></div>
+          <svg id="chart-svg" class="candles" viewBox="0 0 1000 340"></svg>
+        </div>
+      </section>
+      <aside class="right-col">
+        <div class="panel book">
+          <div class="panel-title">盘口 <small id="book-code"></small></div>
+          <div class="book-row head"><span>卖五档</span><span class="right">价格</span><span class="right">手</span></div>
+          <div id="book-asks"></div>
+          <div class="book-mid" id="book-mid"></div>
+          <div id="book-bids"></div>
+        </div>
+        <div class="panel trade">
+          <div class="panel-title">下单 <small id="t-sym"></small></div>
+          <div class="t-price">现价 <b id="t-price"></b></div>
+          <div class="dir-tabs">
+            <button id="dir-buy" class="dt buy">买入开多</button>
+            <button id="dir-sell" class="dt sell">卖出开空</button>
+          </div>
+          <div class="qty-row"><span>手数</span>
+            <div class="stepper">
+              <button id="qty-minus" aria-label="减少手数">−</button>
+              <input id="qty-input" type="number" min="1" max="999" value="1" aria-label="下单手数" />
+              <button id="qty-plus" aria-label="增加手数">+</button>
+            </div>
+          </div>
+          <div class="otype-row">
+            <button id="otype-market" class="seg">市价</button>
+            <button id="otype-limit" class="seg">限价</button>
+          </div>
+          <input id="limit-input" class="px-input" type="number" style="display:none" placeholder="委托价格" aria-label="委托限价" />
+          <div class="margin-est" id="margin-est">预估保证金 — 元</div>
+          <div class="sim-note" id="trade-note">通过本地网关向 SimNow 下单</div>
+          <button id="submit-btn" class="big-btn buy">买入开多 1 手</button>
+        </div>
+      </aside>
+    </div>
+    <section class="panel bottom">
+      <div class="bottom-tabs">
+        <button id="tab-pos" class="bt active">持仓 (0)</button>
+        <button id="tab-ord" class="bt">委托 (0)</button>
+      </div>
+      <div id="tables"></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" style="display:none"></div>
+  <footer class="foot">行情/交易经本地 Python 网关连接 SimNow 仿真 · 不构成投资建议</footer>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
