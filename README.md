@@ -15,12 +15,12 @@
 ## 目录结构
 
 ```
-futures-gateway/
 ├── gateway/
 │   ├── config.py        # 配置读取（config.json）
 │   ├── ctp.py           # openctp_ctp 封装（行情 + 交易，一账号一实例）
 │   ├── account_mgr.py   # 多账号管理 + WebSocket 广播
 │   ├── server.py        # aiohttp：静态前端 + /ws
+│   ├── history.py       # 历史 K 线（akshare）
 │   └── main.py          # 入口
 ├── web/
 │   ├── index.html
@@ -28,13 +28,14 @@ futures-gateway/
 │   └── js/
 │       ├── store.js     # 状态仓库（纯逻辑）
 │       ├── ws.js        # WebSocket 客户端
-│       ├── chart.js     # K线渲染
+│       ├── chart.js     # K 线（Lightweight Charts）
+│       ├── history.js   # 历史 K 线拉取
 │       ├── ui_overview.js  # 多账户概览
 │       ├── ui_detail.js    # 账户明细（行情/盘口/下单/持仓）
 │       └── app.js       # 装配与事件
-├── config.json          # 账号配置（首次运行自动从示例生成）
-├── config.json.example
 ├── docs/                # 需求、调研、历史 demo
+├── config.json          # 账号配置（勿提交 Git）
+├── config.json.example
 ├── requirements.txt
 └── start.bat
 ```
