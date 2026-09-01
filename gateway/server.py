@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import webbrowser
 
 from aiohttp import web
 
@@ -99,7 +100,10 @@ def run_server(mgr, config):
         await runner.setup()
         site = web.TCPSite(runner, host, port)
         await site.start()
-        print(f"  服务已启动: http://{host}:{port}  （Ctrl+C 停止）")
+        open_host = host if host not in ("0.0.0.0", "::") else "127.0.0.1"
+        url = f"http://{open_host}:{port}"
+        print(f"  服务已启动: {url}  （Ctrl+C 停止）")
+        webbrowser.open(url)
         try:
             while True:
                 await asyncio.sleep(3600)
