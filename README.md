@@ -102,3 +102,4 @@ futures-gateway/
 
 - `openctp-ctp` — 标准 CTP API 的 Python 直译封装，自带官方 DLL（行情 + 交易）
 - `aiohttp` — 异步 Web 框架：静态前端 + WebSocket 实时推送
+- `akshare`
