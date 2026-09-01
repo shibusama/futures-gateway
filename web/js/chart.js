@@ -24,22 +24,17 @@ function buildLiveCandles(symbol) {
   let prevCumVol = null;
 
   hist.forEach((t) => {
+    const px = t.price;
+    if (!px || !isFinite(px) || px <= 0) return;
     const ts = t._ts || Date.now();
     const key = Math.floor(ts / bucketMs) * bucketMs;
     if (!buckets[key]) {
-      buckets[key] = {
-        t: key,
-        o: t.price,
-        h: t.high != null ? Math.max(t.price, t.high) : t.price,
-        l: t.low != null ? Math.min(t.price, t.low) : t.price,
-        c: t.price,
-        v: 0,
-      };
+      buckets[key] = { t: key, o: px, h: px, l: px, c: px, v: 0 };
     }
     const b = buckets[key];
-    b.h = Math.max(b.h, t.price, t.high || t.price);
-    b.l = Math.min(b.l, t.price, t.low || t.price);
-    b.c = t.price;
+    b.h = Math.max(b.h, px);
+    b.l = Math.min(b.l, px);
+    b.c = px;
 
     const cum = t.volume || 0;
     if (prevCumVol != null && cum > prevCumVol) {
@@ -60,7 +55,21 @@ export function buildCandles(symbol) {
   const live = buildLiveCandles(symbol);
   const map = new Map();
   history.forEach((b) => map.set(b.t, { ...b }));
-  live.forEach((b) => map.set(b.t, { ...b }));
+  live.forEach((b) => {
+    const prev = map.get(b.t);
+    // 同时间桶：历史 K 线优先，仅用实时价更新 close/high/low
+    if (prev && store.tf !== "1d") {
+      map.set(b.t, {
+        ...prev,
+        c: b.c,
+        h: Math.max(prev.h, b.c),
+        l: Math.min(prev.l, b.c),
+        v: Math.max(prev.v || 0, b.v || 0),
+      });
+    } else {
+      map.set(b.t, { ...b });
+    }
+  });
   return Array.from(map.values())
     .sort((a, b) => a.t - b.t)
     .slice(-DISPLAY_SLOTS);
@@ -142,6 +151,7 @@ function ensureChart(el, tfKey) {
         textColor: theme.text,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
         fontSize: 11,
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: theme.line, style: 1 },
@@ -236,6 +246,33 @@ function dedupeBars(items) {
   });
 }
 
+let lastRenderedKey = null;
+
+/** 仅更新最后一根 K 线（tick 节流用，避免整表 setData） */
+export function updateChartLive(el, candles, live, dec, tfKey) {
+  if (!el || !candles.length) return;
+  store._chartDec = dec;
+  store._chartTf = tfKey;
+  const key = `${store.sel}_${tfKey}`;
+  if (!chart || !candleSeries || !volumeSeries || lastRenderedKey !== key) {
+    renderChart(el, candles, live, dec, tfKey);
+    return;
+  }
+  const last = candles[candles.length - 1];
+  const time = toChartTime(last.t, tfKey);
+  const bar = { time, open: last.o, high: last.h, low: last.l, close: live > 0 ? live : last.c };
+  candleSeries.update(bar);
+  volumeSeries.update({
+    time,
+    value: last.v || 0,
+    color: bar.close >= bar.open ? "rgba(224, 56, 56, 0.45)" : "rgba(18, 158, 88, 0.45)",
+  });
+  updateOhlc(
+    { open: bar.open, high: bar.high, low: bar.low, close: bar.close, value: last.v },
+    time, dec, tfKey,
+  );
+}
+
 export function renderChart(el, candles, live, dec, tfKey) {
   if (!el) return;
   store._chartDec = dec;
@@ -283,6 +320,7 @@ export function renderChart(el, candles, live, dec, tfKey) {
     dec,
     tfKey,
   );
+  lastRenderedKey = `${store.sel}_${tfKey}`;
 }
 
 /** 兼容 app.js 旧调用，Lightweight Charts 自带十字光标 */
@@ -297,4 +335,5 @@ export function destroyChart() {
   candleSeries = null;
   volumeSeries = null;
   containerEl = null;
+  lastRenderedKey = null;
 }

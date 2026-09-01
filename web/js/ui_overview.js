@@ -1,7 +1,7 @@
 /**
  * ui_overview.js — 多账户概览页渲染。
  */
-import { store, totals, symbolSummary, accountSummary, loginBadge, emit } from "./store.js";
+import { store, totals, symbolSummary, accountSummary, loginBadge, acctFloat, emit } from "./store.js";
 
 const fmt = (v, d = 0) => Number(v || 0).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const cls = (v) => (v >= 0 ? "up" : "down");
@@ -25,7 +25,7 @@ export function renderOverview() {
     const badge = loginBadge(st, !!b);
     const stBadge = `<span class="badge ${badge.ok ? "b-ok" : "b-wait"}">${badge.text}</span>`;
     if (b) {
-      const fpnl = (b.position_profit || 0) + (b.close_profit || 0);
+      const fpnl = acctFloat(acc);
       rows += `<tr class="row-click" data-acct="${acc}">
         <td>${acc}</td><td class="tab">${b.account || "—"}</td><td>SimNow</td>
         <td>${stBadge}</td>

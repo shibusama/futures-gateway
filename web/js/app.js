@@ -5,7 +5,7 @@ import { store, totals, emit } from "./store.js";
 import { connect, sendOrder } from "./ws.js";
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
-import { renderDetail, rerenderChart } from "./ui_detail.js";
+import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./ui_detail.js";
 import { bindChartHover } from "./chart.js";
 
 /* ---------- 视图切换 ---------- */
@@ -74,7 +74,13 @@ function bindEvents() {
   // 行情列表选合约
   document.getElementById("watchlist").addEventListener("click", (e) => {
     const b = e.target.closest(".wl-row");
-    if (b) { store.sel = b.getAttribute("data-code"); render(); }
+    if (!b) return;
+    const code = b.getAttribute("data-code");
+    if (code === store.sel) return;
+    // 立即切换高亮，不等整页重绘
+    document.querySelectorAll("#watchlist .wl-row.active").forEach((r) => r.classList.remove("active"));
+    b.classList.add("active");
+    selectSymbol(code);
   });
 
   // 周期切换
@@ -140,15 +146,23 @@ function toast(text) {
 }
 
 /* ---------- 网关推送 → 渲染 ---------- */
+let tickRaf = null;
+function onTickFrame() {
+  tickRaf = null;
+  if (store.view === "detail") {
+    refreshDetailLive();
+  } else {
+    renderHeader("open");
+    renderOverview();
+  }
+}
 window.addEventListener("ftd-event", (e) => {
   const d = e.detail;
   if (d.type === "conn") { renderHeader(d.status); }
   else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position" || d.type === "history") {
     render();
   } else if (d.type === "tick") {
-    // 行情来了就重绘（当前视图 detail 时刷新行情列表/图表；overview 时无需全量重绘顶部聚合每 tick 都做，节流）
-    if (store.view === "detail") render();
-    else renderHeader("open");
+    if (!tickRaf) tickRaf = requestAnimationFrame(onTickFrame);
   } else if (d.type === "order" || d.type === "trade") {
     if (store.view === "detail") renderDetail();
   } else if (d.type === "error") {

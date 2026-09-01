@@ -93,17 +93,37 @@ export function pxOf(symbol) {
   return p && p > 0 && isFinite(p) ? p : 0;
 }
 
-/** 某账户浮动盈亏（可能缺少乘数信息，按网关推送为准；这里只做现货级估算展示用） */
+/** 合约乘数（估算浮动盈亏；无 tick 时回退网关推送值） */
+export function contractMult(symbol) {
+  const p = String(symbol || "").replace(/\d+$/, "").toUpperCase();
+  const map = {
+    RB: 10, HC: 10, I: 100, J: 100, JM: 60, SS: 5,
+    CU: 5, AL: 5, ZN: 5, NI: 1, SN: 1, AU: 1000, AG: 15,
+    SC: 1000, FU: 10, BU: 10, RU: 10,
+    IF: 300, IH: 300, IC: 200, IM: 200,
+    M: 10, Y: 10, P: 10, C: 10, A: 10, B: 10,
+    CF: 5, SR: 10, TA: 5, MA: 10, FG: 20,
+  };
+  return map[p] || 10;
+}
+
+/** 单笔持仓实时浮动盈亏 */
+export function positionLivePnl(p) {
+  const px = pxOf(p.symbol);
+  if (!(px > 0) || !p.volume) return p.position_profit || 0;
+  const dir = String(p.direction).includes("Long") ? 1 : -1;
+  const open = p.open_price || px;
+  return (px - open) * p.volume * contractMult(p.symbol) * dir;
+}
+
+/** 某账户浮动盈亏（持仓按 tick 实时估算 + 已平仓盈亏） */
 export function acctFloat(account) {
   const pos = store.positions[account] || [];
   let float = 0;
-  pos.forEach((p) => {
-    const px = pxOf(p.symbol);
-    if (px > 0) {
-      const dir = String(p.direction).includes("Long") ? 1 : -1; // 兼容 'Long'/'Short'
-      float += (px - (p.open_price || px)) * p.volume * dir;
-    }
-  });
+  pos.forEach((p) => { float += positionLivePnl(p); });
+  const b = store.balances[account];
+  if (b) float += b.close_profit || 0;
+  else if (!pos.length) return 0;
   return float;
 }
 
@@ -112,13 +132,14 @@ export function totals() {
   let equity = 0, avail = 0, margin = 0, float = 0;
   for (const acc of store.accounts) {
     const b = store.balances[acc];
+    const liveFloat = acctFloat(acc);
+    float += liveFloat;
     if (b) {
-      equity += b.balance || 0;
-      avail += b.available || 0;
+      const staleFloat = (b.position_profit || 0) + (b.close_profit || 0);
+      const floatDelta = liveFloat - staleFloat;
+      equity += (b.balance || 0) + floatDelta;
+      avail += (b.available || 0) + floatDelta;
       margin += b.margin || 0;
-      float += (b.position_profit || 0) + (b.close_profit || 0);
-    } else {
-      float += acctFloat(acc);
     }
   }
   return { equity, avail, margin, float };
@@ -148,7 +169,7 @@ export function symbolSummary() {
       const isLong = String(p.direction).includes("Long");
       if (isLong) map[p.symbol].long += p.volume;
       else map[p.symbol].short += p.volume;
-      map[p.symbol].pnl += (p.position_profit || 0);
+      map[p.symbol].pnl += positionLivePnl(p);
     });
   }
   return Object.values(map).sort((a, b) => (a.symbol < b.symbol ? -1 : 1));
@@ -166,12 +187,12 @@ export function accountSummary() {
       const isLong = String(p.direction).includes("Long");
       if (isLong) long += p.volume;
       else short += p.volume;
-      pnl += p.position_profit || 0;
+      pnl += positionLivePnl(p);
       margin += p.margin || 0;
     });
     const b = store.balances[acc];
     if (!pos.length && b) {
-      pnl = (b.position_profit || 0) + (b.close_profit || 0);
+      pnl = acctFloat(acc);
       margin = b.margin || 0;
     }
     return { account: acc, long, short, pnl, margin, symbols: pos.length };

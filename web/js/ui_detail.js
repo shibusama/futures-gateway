@@ -1,8 +1,8 @@
 /**
  * ui_detail.js — 账户明细页：行情列表 / K线 / 盘口 / 下单面板 / 持仓委托。
  */
-import { store, pxOf, emit, getTick, tickIsLive } from "./store.js";
-import { buildCandles, renderChart } from "./chart.js";
+import { store, pxOf, emit, getTick, tickIsLive, acctFloat, positionLivePnl } from "./store.js";
+import { buildCandles, renderChart, updateChartLive } from "./chart.js";
 import { fetchBarHistory } from "./history.js";
 
 const SYMBOLS = [
@@ -27,21 +27,28 @@ const cls = (v) => (v >= 0 ? "up" : "down");
 export function renderDetail() {
   const account = stateAccount();
   if (!account) { emit({ type: "toast", msg: "请先在概览页选择账户" }); return; }
-  const sym = currentSymbol();
-  const tick = getTick(store.sel);
-  const live = tickIsLive(store.sel);
-  const price = tick?.price > 0 ? tick.price : 0;
-  const pre = tick?.pre_close || 0;
-  const chg = pre ? price - pre : 0;
-  const pct = pre ? (chg / pre) * 100 : 0;
-  const pClass = price ? cls(chg) : "";
+  renderDetailHeader();
+  renderWatchlist();
+  renderSymbolPanel();
+  renderTables(account);
+  emit({ type: "ui", view: "detail", account });
+}
 
-  // 明细头部
-  document.getElementById("d-name").innerHTML = account;
-  document.getElementById("d-account-id").textContent = "SimNow";
-  document.getElementById("d-stats").innerHTML = accountStats(account);
+/** 切换合约：不重绘左侧列表，响应更快 */
+export function selectSymbol(code) {
+  store.sel = code;
+  renderSymbolPanel();
+}
 
-  // 行情列表
+/** tick 节流刷新：只更新报价和 K 线末根，不重绘表格 */
+export function refreshDetailLive() {
+  renderWatchlist();
+  renderSymbolPanel({ liveOnly: true });
+  const account = stateAccount();
+  if (account) document.getElementById("d-stats").innerHTML = accountStats(account);
+}
+
+function renderWatchlist() {
   document.getElementById("watchlist").innerHTML = SYMBOLS.map((s) => {
     const t = getTick(s.code);
     const p = t?.price > 0 ? t.price : 0;
@@ -59,6 +66,17 @@ export function renderDetail() {
       <span class="right tab">${p ? fmt(p, s.dec) : "—"}</span>
       <span class="right tab ${pcCls}">${pcText}</span></button>`;
   }).join("");
+}
+
+function renderSymbolPanel(opts = {}) {
+  const sym = currentSymbol();
+  const tick = getTick(store.sel);
+  const live = tickIsLive(store.sel);
+  const price = tick?.price > 0 ? tick.price : 0;
+  const pre = tick?.pre_close || 0;
+  const chg = pre ? price - pre : 0;
+  const pct = pre ? (chg / pre) * 100 : 0;
+  const pClass = price ? cls(chg) : "";
 
   // 图表头
   document.getElementById("ch-name").innerHTML = `${sym.name}<small>${sym.code}</small>`;
@@ -68,14 +86,19 @@ export function renderDetail() {
   document.getElementById("ch-change").textContent = chg ? `${chg >= 0 ? "+" : ""}${fmt(chg, sym.dec)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : "—";
   document.getElementById("ch-change").className = pClass;
 
-  // 周期页签
-  document.getElementById("tf-tabs").innerHTML = TIME_FRAMES.map((t) =>
-    `<button class="tf${store.tf === t.key ? " active" : ""}" data-tf="${t.key}">${t.label}</button>`).join("");
+  if (!opts.liveOnly) {
+    document.getElementById("tf-tabs").innerHTML = TIME_FRAMES.map((t) =>
+      `<button class="tf${store.tf === t.key ? " active" : ""}" data-tf="${t.key}">${t.label}</button>`).join("");
+    fetchBarHistory(store.sel, store.tf);
+  }
 
-  // K线（历史 + 实时）
-  fetchBarHistory(store.sel, store.tf);
   const candles = buildCandles(store.sel);
-  renderChart(document.getElementById("chart-container"), candles, price, sym.dec, store.tf);
+  const chartEl = document.getElementById("chart-container");
+  if (opts.liveOnly) {
+    updateChartLive(chartEl, candles, price, sym.dec, store.tf);
+  } else {
+    renderChart(chartEl, candles, price, sym.dec, store.tf);
+  }
 
   // 盘口
   document.getElementById("book-code").textContent = store.sel;
@@ -95,10 +118,14 @@ export function renderDetail() {
   if (store.otype === "limit" && li.value === "") li.value = price ? price.toFixed(sym.dec) : "";
   document.getElementById("submit-btn").textContent = `${store.dir === "buy" ? "买入开多" : "卖出开空"} ${store.qty} 手`;
   document.getElementById("submit-btn").className = `big-btn ${store.dir === "buy" ? "buy" : "sell"}`;
+}
 
-  // 持仓/委托
-  renderTables(account);
-  emit({ type: "ui", view: "detail", account });
+function renderDetailHeader() {
+  const account = stateAccount();
+  if (!account) return;
+  document.getElementById("d-name").innerHTML = account;
+  document.getElementById("d-account-id").textContent = "SimNow";
+  document.getElementById("d-stats").innerHTML = accountStats(account);
 }
 
 function stateAccount() {
@@ -114,10 +141,12 @@ function currentSymbol() {
 function accountStats(account) {
   const b = store.balances[account];
   if (!b) return `<div class="ds-item"><span>等待资金回报</span><b>—</b></div>`;
-  const fpnl = (b.position_profit || 0) + (b.close_profit || 0);
+  const fpnl = acctFloat(account);
+  const staleFloat = (b.position_profit || 0) + (b.close_profit || 0);
+  const delta = fpnl - staleFloat;
   return `
-    <div class="ds-item"><span>权益</span><b class="tab">${fmt(b.balance)}</b></div>
-    <div class="ds-item"><span>可用资金</span><b class="tab">${fmt(b.available)}</b></div>
+    <div class="ds-item"><span>权益</span><b class="tab">${fmt(b.balance + delta)}</b></div>
+    <div class="ds-item"><span>可用资金</span><b class="tab">${fmt(b.available + delta)}</b></div>
     <div class="ds-item"><span>浮动盈亏</span><b class="tab ${cls(fpnl)}">${fpnl >= 0 ? "+" : ""}${fmt(fpnl)}</b></div>
     <div class="ds-item"><span>保证金</span><b class="tab">${fmt(b.margin)}</b></div>
     <div class="ds-item"><span>手续费</span><b class="tab">${fmt(b.commission)}</b></div>`;
@@ -168,7 +197,7 @@ function renderTables(account) {
         <td><span class="badge ${dirCls}">${dir}</span></td>
         <td>${p.volume}</td><td>${p.avail}</td>
         <td class="tab">${fmt(p.open_price, 0)}</td>
-        <td class="tab ${cls(p.position_profit)}">${fmt(p.position_profit)}</td>
+        <td class="tab ${cls(positionLivePnl(p))}">${fmt(positionLivePnl(p))}</td>
         <td class="tab">${fmt(p.margin)}</td></tr>`;
     });
     el.innerHTML = html + "</tbody></table>";
