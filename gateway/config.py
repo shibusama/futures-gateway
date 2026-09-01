@@ -37,7 +37,7 @@ def ensure_config():
 
 def load_config():
     path = ensure_config()
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8-sig") as f:
         cfg = json.load(f)
     return normalize(cfg)
 

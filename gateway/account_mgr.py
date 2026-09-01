@@ -15,6 +15,7 @@ class AccountManager:
         self.loop = None  # 运行中的事件循环由 run_server 启动后绑定（Python 3.12+ 兼容）
         self._lock = threading.Lock()
         self.last_states = {}       # account_name -> {'login': ..., 'balance': {...}}
+        self.last_ticks = {}        # symbol -> 最近一笔 tick（断流/刷新后仍可展示）
 
     # ---------- WebSocket 客户端管理 ----------
     def add_client(self, ws):
@@ -35,11 +36,34 @@ class AccountManager:
         acc = event.get("account")
         if event.get("type") == "login":
             state = self.last_states.setdefault(acc, {})
-            state["login"] = event.get("status")
+            status = event.get("status")
+            prev = state.get("login")
+            # 行情就绪(md_ok)不应覆盖交易已登录(ok)
+            if status == "md_ok" and prev == "ok":
+                state["md_login"] = True
+            else:
+                state["login"] = status
             if event.get("msg"):
-                state["login_msg"] = event.get("msg")
+                if status == "md_ok":
+                    state["login_msg_md"] = event.get("msg")
+                else:
+                    state["login_msg"] = event.get("msg")
         if event.get("type") == "balance":
             self.last_states.setdefault(acc, {})["balance"] = event
+        # 持仓也缓存进 last_states：刷新页面/新客户端连上拿 hello 即可看到持仓
+        if event.get("type") == "position":
+            st = self.last_states.setdefault(acc, {})
+            lst = st.setdefault("positions", [])
+            key = (event.get("symbol") or "") + "_" + str(event.get("direction"))
+            lst = [p for p in lst if ((p.get("symbol") or "") + "_" + str(p.get("direction"))) != key]
+            if (event.get("volume") or 0) > 0:
+                lst.append(event)
+            st["positions"] = lst
+        if event.get("type") == "tick":
+            sym = event.get("symbol")
+            if sym:
+                with self._lock:
+                    self.last_ticks[sym] = event
         if self.loop is None:
             return  # 事件循环未启动，丢弃连接早期事件
         try:
@@ -106,14 +130,17 @@ class AccountManager:
 
     def query_all(self):
         """收到查询请求时，让所有账号重新刷新资金/持仓。"""
-        for gw in self.gateways.values():
-            gw.query_balance()
-            gw.query_positions()
-            gw.query_orders()
+        for name, gw in self.gateways.items():
+            st = self.last_states.setdefault(name, {})
+            st["positions"] = []
+            gw.refresh_all()
 
     def status(self):
+        with self._lock:
+            ticks = dict(self.last_ticks)
         return {
             "accounts": list(self.gateways.keys()),
             "connected_clients": self.client_count(),
             "last_states": self.last_states,
+            "last_ticks": ticks,
         }

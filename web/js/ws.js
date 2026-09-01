@@ -2,7 +2,9 @@
  * ws.js — 与本地网关的 WebSocket 连接管理。
  * 连接 ws://127.0.0.1:8765/ws（与网关 config.json host/port 对应；页面本身由网关静态服务托管）。
  */
-import { store, emit } from "./store.js";
+import { store, emit, mergeLoginStatus, applyTick, seedTick, loadTicksFromStorage } from "./store.js";
+
+loadTicksFromStorage();
 
 let ws = null;
 let retryTimer = null;
@@ -54,6 +56,11 @@ function handle(msg) {
   const account = msg.account;
 
   if (type === "system") {
+    if (msg.cmd === "query_ok") {
+      for (const acc of store.accounts) store.positions[acc] = [];
+      emit({ type: "system", data: msg });
+      return;
+    }
     if (msg.cmd === "hello" || msg.cmd === "status") {
       const data = msg.data || {};
       if (data.accounts && data.accounts.length) {
@@ -61,7 +68,14 @@ function handle(msg) {
         // 从 last_states 恢复登录状态
         data.last_states = data.last_states || {};
         for (const acc of store.accounts) {
-          store.login[acc] = (data.last_states[acc] && data.last_states[acc].login) || null;
+          const st = data.last_states[acc] || {};
+          const login = st.login;
+          store.login[acc] = (login === "md_ok" && st.balance) ? "ok" : (login || null);
+          if (st.balance) store.balances[acc] = st.balance;
+          if (st.positions && st.positions.length) store.positions[acc] = st.positions;
+        }
+        if (data.last_ticks) {
+          Object.entries(data.last_ticks).forEach(([sym, tick]) => seedTick(sym, tick));
         }
       }
       emit({ type: "system", data });
@@ -71,8 +85,8 @@ function handle(msg) {
 
   // account 相关的实时事件
   if (type === "login") {
-    store.login[account] = msg.status;
-    emit({ type: "login", account, status: msg.status, msg: msg.msg });
+    store.login[account] = mergeLoginStatus(store.login[account], msg.status);
+    emit({ type: "login", account, status: store.login[account], msg: msg.msg });
     return;
   }
   if (type === "balance") {
@@ -81,16 +95,18 @@ function handle(msg) {
     return;
   }
   if (type === "tick") {
-    store.ticks[msg.symbol] = msg;
+    applyTick(msg);
     emit({ type: "tick", symbol: msg.symbol });
     return;
   }
   if (type === "position") {
     if (!store.positions[account]) store.positions[account] = [];
-    const list = store.positions[account].filter((p) => !(p.symbol === msg.symbol && p.direction === msg.direction));
+    // 用 symbol+direction 去重（同一合约多空各一条）
+    const key = `${msg.symbol}_${msg.direction}`;
+    let list = store.positions[account].filter((p) => !(`${p.symbol}_${p.direction}` === key));
     if (msg.volume > 0) list.push(msg);
     store.positions[account] = list;
-    if (msg.is_last) emit({ type: "position", account });
+    emit({ type: "position", account });   // 每收到就渲染，不依赖 is_last（分页可能不触发 is_last）
     return;
   }
   if (type === "order") {

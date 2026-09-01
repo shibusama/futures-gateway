@@ -1,7 +1,7 @@
 /**
  * ui_overview.js — 多账户概览页渲染。
  */
-import { store, totals, symbolSummary, emit } from "./store.js";
+import { store, totals, symbolSummary, accountSummary, loginBadge, emit } from "./store.js";
 
 const fmt = (v, d = 0) => Number(v || 0).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const cls = (v) => (v >= 0 ? "up" : "down");
@@ -22,8 +22,8 @@ export function renderOverview() {
   list.forEach((acc) => {
     const b = store.balances[acc];
     const st = store.login[acc];
-    const stMap = { ok: "已登录", connecting: "连接中", disconnected: "已断开", closed: "未连接" };
-    const stBadge = `<span class="badge ${st === "ok" ? "b-ok" : "b-wait"}">${stMap[st] || "未连接"}</span>`;
+    const badge = loginBadge(st, !!b);
+    const stBadge = `<span class="badge ${badge.ok ? "b-ok" : "b-wait"}">${badge.text}</span>`;
     if (b) {
       const fpnl = (b.position_profit || 0) + (b.close_profit || 0);
       rows += `<tr class="row-click" data-acct="${acc}">
@@ -45,20 +45,45 @@ export function renderOverview() {
   document.getElementById("acct-list").innerHTML = rows;
   document.getElementById("acct-empty").style.display = list.length ? "none" : "block";
 
-  // 按品种汇总
-  const sums = symbolSummary();
-  let srows = "";
-  sums.forEach((m) => {
-    const net = m.long - m.short;
-    srows += `<tr>
-      <td>${m.symbol}</td>
-      <td class="tab">${m.long}</td>
-      <td class="tab">${m.short}</td>
-      <td class="tab ${cls(net) === "down" && net < 0 ? "down" : "up"}">${net}</td>
-      <td class="tab ${cls(m.pnl)}">${m.pnl >= 0 ? "+" : ""}${fmt(m.pnl)}</td></tr>`;
-  });
-  document.getElementById("sum-body").innerHTML = srows;
-  document.getElementById("sum-empty").style.display = sums.length ? "none" : "block";
+  // 汇总区 Tab
+  const bySymbol = store.sumTab === "symbol";
+  document.getElementById("sum-tab-symbol").className = "bt" + (bySymbol ? " active" : "");
+  document.getElementById("sum-tab-account").className = "bt" + (!bySymbol ? " active" : "");
+  document.getElementById("sum-hint").textContent = bySymbol ? "（跨账户合并）" : "（单账户持仓汇总）";
+  document.getElementById("sum-table-symbol").style.display = bySymbol ? "block" : "none";
+  document.getElementById("sum-table-account").style.display = bySymbol ? "none" : "block";
+
+  if (bySymbol) {
+    const sums = symbolSummary();
+    let srows = "";
+    sums.forEach((m) => {
+      const net = m.long - m.short;
+      srows += `<tr>
+        <td>${m.symbol}</td>
+        <td class="tab">${m.long}</td>
+        <td class="tab">${m.short}</td>
+        <td class="tab ${cls(net) === "down" && net < 0 ? "down" : "up"}">${net}</td>
+        <td class="tab ${cls(m.pnl)}">${m.pnl >= 0 ? "+" : ""}${fmt(m.pnl)}</td></tr>`;
+    });
+    document.getElementById("sum-body-symbol").innerHTML = srows;
+    document.getElementById("sum-empty").style.display = sums.length ? "none" : "block";
+  } else {
+    const accts = accountSummary();
+    let arows = "";
+    accts.forEach((a) => {
+      const net = a.long - a.short;
+      arows += `<tr class="row-click" data-acct="${a.account}">
+        <td>${a.account}</td>
+        <td class="tab">${a.long}</td>
+        <td class="tab">${a.short}</td>
+        <td class="tab ${cls(net) === "down" && net < 0 ? "down" : "up"}">${net}</td>
+        <td class="tab">${fmt(a.margin)}</td>
+        <td class="tab ${cls(a.pnl)}">${a.pnl >= 0 ? "+" : ""}${fmt(a.pnl)}</td></tr>`;
+    });
+    document.getElementById("sum-body-account").innerHTML = arows;
+    const hasPos = accts.some((a) => a.long || a.short || a.pnl || a.margin);
+    document.getElementById("sum-empty").style.display = hasPos ? "none" : "block";
+  }
 
   document.getElementById("roadmap").innerHTML =
     `<b>连接状态 →</b> 网关 ${store.conn === "open" ? "已连接" : "未连接"} · ${store.accounts.length} 个账户 ·

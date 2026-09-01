@@ -1,2 +1,3 @@
 openctp-ctp
 aiohttp
+akshare

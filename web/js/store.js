@@ -6,27 +6,91 @@ export const store = {
   conn: "closed",           // closed | connecting | open
   view: "overview",         // overview | detail
   activeAcct: null,         // 当前明细页账户名
-  sel: "rb2510",            // 当前选中合约
+  sel: "rb2610",            // 当前选中合约
   tf: "1m",
   qty: 1,
   dir: "buy",
   otype: "market",
   limitPx: "",
 
-  ticks: {},                // symbol -> tick 数据（网关推送）
+  ticks: {},                // symbol -> tick 数据（网关推送，最新一笔）
+  lastTicks: {},            // symbol -> 最后一次有效 tick（断流时保留）
+  tickHistory: {},          // symbol -> tick 数组（用于聚合 K 线，保留最近 ~300 笔）
   balances: {},             // account -> 资金快照
   positions: {},            // account -> [position...]
   orders: {},               // account -> [order...]
   trades: {},               // account -> [trade...]
   login: {},                // account -> 登录状态
   accounts: [],             // 网关 hello 时返回的账号列表
+  barHistory: {},           // symbol_tf -> [{t,o,h,l,c,v}]
   lastShown: [],            // toast 提示防抖
+  sumTab: "symbol",         // overview 汇总区：symbol | account
 };
+
+const TICK_STORAGE_KEY = "fg_last_ticks";
+
+/** 启动时从 localStorage 恢复上次行情快照 */
+export function loadTicksFromStorage() {
+  try {
+    const raw = localStorage.getItem(TICK_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data && typeof data === "object") {
+      store.lastTicks = { ...store.lastTicks, ...data };
+    }
+  } catch (_) { /* ignore */ }
+}
+
+export function saveTicksToStorage() {
+  try {
+    localStorage.setItem(TICK_STORAGE_KEY, JSON.stringify(store.lastTicks));
+  } catch (_) { /* ignore */ }
+}
+
+/** 取最新 tick：实时优先，否则用最后一次快照 */
+export function getTick(symbol) {
+  return store.ticks[symbol] || store.lastTicks[symbol] || null;
+}
+
+/** 是否仍在接收实时 tick（2 分钟内有更新） */
+export function tickIsLive(symbol) {
+  const t = store.ticks[symbol];
+  if (!t) return false;
+  const ts = t._ts || t._savedAt || 0;
+  return ts > 0 && Date.now() - ts < 120000;
+}
+
+/** 写入 tick（实时 + 快照 + 持久化） */
+export function applyTick(msg) {
+  if (!msg?.symbol) return;
+  const sym = msg.symbol;
+  const now = Date.now();
+  const tick = { ...msg, _savedAt: now };
+  store.ticks[sym] = tick;
+  store.lastTicks[sym] = tick;
+  if (!store.tickHistory[sym]) store.tickHistory[sym] = [];
+  store.tickHistory[sym].push(tick);
+  if (store.tickHistory[sym].length > 2000) store.tickHistory[sym].shift();
+  saveTicksToStorage();
+}
+
+/** 从网关 hello / 历史 K 线补种子行情（不覆盖更新的快照） */
+export function seedTick(symbol, seed) {
+  if (!symbol || !seed) return;
+  const cur = store.lastTicks[symbol];
+  const curTs = cur?._ts || cur?._savedAt || 0;
+  const seedTs = seed._ts || seed._savedAt || 0;
+  if (cur && curTs >= seedTs) return;
+  store.lastTicks[symbol] = { ...seed, symbol, _snapshot: true, _savedAt: seedTs || Date.now() };
+  if (!store.ticks[symbol]) store.ticks[symbol] = store.lastTicks[symbol];
+  saveTicksToStorage();
+}
 
 /** 按合约取最新价 */
 export function pxOf(symbol) {
-  const t = store.ticks[symbol];
-  return t ? t.price : 0;
+  const t = getTick(symbol);
+  const p = t?.price;
+  return p && p > 0 && isFinite(p) ? p : 0;
 }
 
 /** 某账户浮动盈亏（可能缺少乘数信息，按网关推送为准；这里只做现货级估算展示用） */
@@ -60,6 +124,21 @@ export function totals() {
   return { equity, avail, margin, float };
 }
 
+/** 账户登录状态 → 界面文案（ok / md_ok 均视为已登录） */
+export function loginBadge(status, hasBalance = false) {
+  if (status === "ok" || status === "md_ok" || (hasBalance && status !== "fail" && status !== "disconnected")) {
+    return { text: "已登录", ok: true };
+  }
+  const map = { connecting: "连接中", disconnected: "已断开", fail: "登录失败", closed: "未连接" };
+  return { text: map[status] || "未连接", ok: false };
+}
+
+/** 合并登录状态：交易 ok 不被行情 md_ok 覆盖 */
+export function mergeLoginStatus(prev, next) {
+  if (prev === "ok" && next === "md_ok") return "ok";
+  return next ?? prev;
+}
+
 /** 跨账户按品种汇总 */
 export function symbolSummary() {
   const map = {};
@@ -73,6 +152,30 @@ export function symbolSummary() {
     });
   }
   return Object.values(map).sort((a, b) => (a.symbol < b.symbol ? -1 : 1));
+}
+
+/** 按账户汇总持仓 */
+export function accountSummary() {
+  return store.accounts.map((acc) => {
+    const pos = store.positions[acc] || [];
+    let long = 0;
+    let short = 0;
+    let pnl = 0;
+    let margin = 0;
+    pos.forEach((p) => {
+      const isLong = String(p.direction).includes("Long");
+      if (isLong) long += p.volume;
+      else short += p.volume;
+      pnl += p.position_profit || 0;
+      margin += p.margin || 0;
+    });
+    const b = store.balances[acc];
+    if (!pos.length && b) {
+      pnl = (b.position_profit || 0) + (b.close_profit || 0);
+      margin = b.margin || 0;
+    }
+    return { account: acc, long, short, pnl, margin, symbols: pos.length };
+  });
 }
 
 export function emit(msg) {

@@ -1,92 +1,300 @@
 /**
- * chart.js — K线图渲染（SVG）。数据来自 store.ticks 聚合的分钟线。
+ * chart.js — K 线图（TradingView Lightweight Charts）
+ * 标准蜡烛图 + 成交量 + 时间横轴 + 十字光标
  */
+import { createChart } from "https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.mjs";
 import { store } from "./store.js";
+import { historyKey } from "./history.js";
 
-const BARS = 60;      // 显示最近 N 根
-const PERIOD_MS = 60000; // 1 分钟聚合
-let hover = null;
+const DISPLAY_SLOTS = 500;
+let chart = null;
+let candleSeries = null;
+let volumeSeries = null;
+let containerEl = null;
+let resizeObs = null;
+let lastTf = null;
 
-/** 把 tick 流聚合为分钟 K 线（简版：以当前价累积高低收） */
+/** 从 tick 流聚合实时 K 线 */
+function buildLiveCandles(symbol) {
+  const hist = store.tickHistory[symbol];
+  if (!hist || !hist.length) return [];
+
+  const bucketMs = tfBucketMs(store.tf);
+  const buckets = {};
+  let prevCumVol = null;
+
+  hist.forEach((t) => {
+    const ts = t._ts || Date.now();
+    const key = Math.floor(ts / bucketMs) * bucketMs;
+    if (!buckets[key]) {
+      buckets[key] = {
+        t: key,
+        o: t.price,
+        h: t.high != null ? Math.max(t.price, t.high) : t.price,
+        l: t.low != null ? Math.min(t.price, t.low) : t.price,
+        c: t.price,
+        v: 0,
+      };
+    }
+    const b = buckets[key];
+    b.h = Math.max(b.h, t.price, t.high || t.price);
+    b.l = Math.min(b.l, t.price, t.low || t.price);
+    b.c = t.price;
+
+    const cum = t.volume || 0;
+    if (prevCumVol != null && cum > prevCumVol) {
+      b.v += cum - prevCumVol;
+    } else if (prevCumVol == null || cum === prevCumVol) {
+      b.v += 1;
+    }
+    prevCumVol = cum;
+  });
+
+  return Object.values(buckets).sort((a, b) => a.t - b.t);
+}
+
+/** 历史 + 实时合并（同时间桶以实时为准） */
 export function buildCandles(symbol) {
-  const t = store.ticks[symbol];
-  if (!t) return [];
-  const now = Date.now();
-  const out = [];
-  for (let i = BARS - 1; i >= 0; i--) {
-    const start = now - i * PERIOD_MS;
-    const base = t.price * (1 + (Math.sin(i + symbol.length) * 0.004)); // 记忆式波动模拟
-    out.push({
-      t: start,
-      o: base, h: base * 1.005, l: base * 0.995, c: base,
-      v: 0,
+  const key = historyKey(symbol, store.tf);
+  const history = store.barHistory[key] || [];
+  const live = buildLiveCandles(symbol);
+  const map = new Map();
+  history.forEach((b) => map.set(b.t, { ...b }));
+  live.forEach((b) => map.set(b.t, { ...b }));
+  return Array.from(map.values())
+    .sort((a, b) => a.t - b.t)
+    .slice(-DISPLAY_SLOTS);
+}
+
+function tfBucketMs(tf) {
+  if (tf === "5m") return 5 * 60000;
+  if (tf === "1d") return 24 * 3600000;
+  return 60000;
+}
+
+function isDark() {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function chartTheme() {
+  const dark = isDark();
+  const line = dark ? "#2a3444" : "#e2e6ef";
+  const bg = dark ? "#161c26" : "#ffffff";
+  const text = dark ? "#8a94a7" : "#6b7486";
+  return { dark, line, bg, text };
+}
+
+function fmtPrice(v, dec) {
+  if (v == null || !isFinite(v)) return "—";
+  return Number(v).toLocaleString("zh-CN", {
+    minimumFractionDigits: dec,
+    maximumFractionDigits: dec,
+  });
+}
+
+function fmtTimeLabel(time, tf) {
+  if (typeof time === "string") return time;
+  const d = new Date(time * 1000);
+  if (tf === "1d") {
+    return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  }
+  return d.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function toChartTime(ts, tf) {
+  if (tf === "1d") {
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return Math.floor(ts / 1000);
+}
+
+function ensureChart(el, tfKey) {
+  const theme = chartTheme();
+  const needRecreate = !chart || containerEl !== el || lastTf !== tfKey;
+
+  if (needRecreate) {
+    if (chart) {
+      chart.remove();
+      chart = null;
+    }
+    if (resizeObs) {
+      resizeObs.disconnect();
+      resizeObs = null;
+    }
+
+    containerEl = el;
+    lastTf = tfKey;
+    el.innerHTML = "";
+
+    chart = createChart(el, {
+      width: el.clientWidth,
+      height: 360,
+      layout: {
+        background: { color: theme.bg },
+        textColor: theme.text,
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: theme.line, style: 1 },
+        horzLines: { color: theme.line, style: 1 },
+      },
+      crosshair: {
+        mode: 1,
+        vertLine: { color: theme.text, width: 1, style: 2, labelBackgroundColor: theme.line },
+        horzLine: { color: theme.text, width: 1, style: 2, labelBackgroundColor: "#2f6bff" },
+      },
+      rightPriceScale: {
+        borderColor: theme.line,
+        scaleMargins: { top: 0.08, bottom: 0.22 },
+      },
+      timeScale: {
+        borderColor: theme.line,
+        timeVisible: true,
+        secondsVisible: tfKey === "1m",
+        fixLeftEdge: false,
+        fixRightEdge: false,
+        rightOffset: 4,
+        barSpacing: 10,
+        minBarSpacing: 4,
+      },
+      localization: {
+        locale: "zh-CN",
+        dateFormat: "yyyy-MM-dd",
+      },
     });
+
+    candleSeries = chart.addCandlestickSeries({
+      upColor: "#e03838",
+      downColor: "#129e58",
+      borderUpColor: "#e03838",
+      borderDownColor: "#129e58",
+      wickUpColor: "#e03838",
+      wickDownColor: "#129e58",
+    });
+
+    volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "",
+    });
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+    });
+
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time) return;
+      const bar = param.seriesData.get(candleSeries);
+      const volBar = param.seriesData.get(volumeSeries);
+      if (bar) {
+        updateOhlc(
+          { ...bar, value: volBar?.value ?? 0 },
+          param.time,
+          store._chartDec ?? 0,
+          store._chartTf ?? "1m",
+        );
+      }
+    });
+
+    resizeObs = new ResizeObserver(() => {
+      if (chart && el.clientWidth > 0) {
+        chart.applyOptions({ width: el.clientWidth });
+      }
+    });
+    resizeObs.observe(el);
   }
-  // 最新价收在最后
-  const last = out[out.length - 1];
-  last.c = t.price;
-  last.h = Math.max(last.h, t.price);
-  last.l = Math.min(last.l, t.price);
-  last.v = t.volume || 0;
-  return out;
+
+  return { chart, candleSeries, volumeSeries };
 }
 
-export function renderChart(svgEl, candles, live, dec, tfKey) {
-  const W = 1000, H = 340, LP = 10, RP = 60, PT = 16, PH = 240, VOL = 46;
-  if (!candles.length) return;
-  const n = candles.length;
-  const slot = (W - LP - RP) / n;
-  const x = (i) => LP + slot * i + slot / 2;
-  let lo = Infinity, hi = -Infinity;
-  candles.forEach((c) => { lo = Math.min(lo, c.l); hi = Math.max(hi, c.h); });
-  const pad = (hi - lo) * 0.07 || 1;
-  const min = lo - pad, max = hi + pad;
-  const y = (p) => PT + ((max - p) / (max - min)) * PH;
-  const volBase = PT + PH + 8;
-  let maxV = 1;
-  candles.forEach((c) => { maxV = Math.max(maxV, c.v || 1); });
-  const idx = hover != null ? Math.min(hover, n - 1) : n - 1;
-  const hx = x(idx);
-  const bw = Math.max(2, slot * 0.62);
-  const parts = [];
-
-  const fmtN = (v) => (v == null ? "—" : Number(v).toLocaleString("zh-CN", { minimumFractionDigits: dec, maximumFractionDigits: dec }));
-
-  for (let k = 0; k < 5; k++) {
-    const t = max - ((max - min) / 4) * k;
-    parts.push(`<line x1="${LP}" y1="${y(t)}" x2="${W - RP}" y2="${y(t)}" class="grid" />`);
-    parts.push(`<text x="${W - RP + 8}" y="${y(t) + 4}" class="ax">${fmtN(t)}</text>`);
-  }
-  candles.forEach((cd, i) => {
-    const u = cd.c >= cd.o;
-    const hb = ((cd.v || 1) / maxV) * VOL;
-    const col = u ? "var(--up)" : "var(--down)";
-    parts.push(`<line x1="${x(i)}" y1="${y(cd.h)}" x2="${x(i)}" y2="${y(cd.l)}" stroke="${col}" stroke-width="1" />`);
-    parts.push(`<rect x="${x(i) - bw / 2}" y="${y(Math.max(cd.o, cd.c))}" width="${bw}" height="${Math.max(1, Math.abs(y(cd.o) - y(cd.c)))}" fill="${col}" />`);
-    parts.push(`<rect x="${x(i) - bw / 2}" y="${volBase + VOL - hb}" width="${bw}" height="${hb}" fill="${u ? "var(--up-dim)" : "var(--down-dim)"}" />`);
-  });
-  parts.push(`<line x1="${LP}" y1="${y(live)}" x2="${W - RP}" y2="${y(live)}" stroke="var(--text)" stroke-width="1" stroke-dasharray="4 3" opacity="0.7" />`);
-  parts.push(`<rect x="${W - RP - 2}" y="${y(live) - 9}" width="${RP - 4}" height="18" rx="3" fill="var(--accent)" />`);
-  parts.push(`<text x="${W - RP + 8}" y="${y(live) + 4}" fill="#fff" font-size="11">${fmtN(live)}</text>`);
-  if (hover != null) {
-    parts.push(`<line x1="${hx}" y1="${PT}" x2="${hx}" y2="${H - 6}" stroke="var(--text)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5" />`);
-    const cd = candles[idx];
-    parts.push(`<text x="${hx}" y="${PT - 4}" text-anchor="middle" font-size="10" fill="var(--text)">${new Date(cd.t).toLocaleTimeString("zh-CN", { hour12: false })}</text>`);
-  }
-  svgEl.innerHTML = parts.join("");
+function updateOhlc(bar, time, dec, tf) {
+  const el = document.getElementById("ohlc");
+  if (!el || !bar) return;
+  el.innerHTML = `
+    <span>开 <b>${fmtPrice(bar.open, dec)}</b></span>
+    <span>高 <b class="up">${fmtPrice(bar.high, dec)}</b></span>
+    <span>低 <b class="down">${fmtPrice(bar.low, dec)}</b></span>
+    <span>收 <b>${fmtPrice(bar.close, dec)}</b></span>
+    <span>量 <b>${Math.round(bar.value ?? bar.volume ?? 0)}</b></span>
+    <span class="ohlc-time">${fmtTimeLabel(time, tf)}</span>`;
 }
 
-export function bindChartHover(svgEl, onHover) {
-  svgEl.addEventListener("mousemove", (e) => {
-    const rect = svgEl.getBoundingClientRect();
-    const rx = ((e.clientX - rect.left) / rect.width) * 1000;
-    const slot = (1000 - 10 - 60) / BARS;
-    const i = Math.floor((rx - 10) / slot);
-    hover = Math.max(0, Math.min(BARS - 1, i));
-    if (onHover) onHover(hover);
+function dedupeBars(items) {
+  const map = new Map();
+  items.forEach((item) => map.set(String(item.time), item));
+  return Array.from(map.values()).sort((a, b) => {
+    const ta = typeof a.time === "number" ? a.time : Date.parse(a.time);
+    const tb = typeof b.time === "number" ? b.time : Date.parse(b.time);
+    return ta - tb;
   });
-  svgEl.addEventListener("mouseleave", () => {
-    hover = null;
-    if (onHover) onHover(null);
-  });
+}
+
+export function renderChart(el, candles, live, dec, tfKey) {
+  if (!el) return;
+  store._chartDec = dec;
+  store._chartTf = tfKey;
+
+  if (!candles.length) {
+    el.innerHTML = `<div class="chart-empty">等待行情数据…</div>`;
+    document.getElementById("ohlc").textContent = "";
+    if (chart) {
+      chart.remove();
+      chart = null;
+    }
+    return;
+  }
+
+  const { candleSeries: cs, volumeSeries: vs } = ensureChart(el, tfKey);
+
+  const ohlc = dedupeBars(candles.map((c) => ({
+    time: toChartTime(c.t, tfKey),
+    open: c.o,
+    high: c.h,
+    low: c.l,
+    close: c.c,
+  })));
+
+  const vol = dedupeBars(candles.map((c) => ({
+    time: toChartTime(c.t, tfKey),
+    value: c.v || 0,
+    color: c.c >= c.o ? "rgba(224, 56, 56, 0.45)" : "rgba(18, 158, 88, 0.45)",
+  })));
+
+  cs.setData(ohlc);
+  vs.setData(vol);
+
+  if (live > 0) {
+    cs.update({ ...ohlc[ohlc.length - 1], close: live });
+  }
+
+  chart.timeScale().fitContent();
+
+  const last = ohlc[ohlc.length - 1];
+  updateOhlc(
+    { open: last.open, high: last.high, low: last.low, close: live > 0 ? live : last.close, value: vol[vol.length - 1]?.value },
+    last.time,
+    dec,
+    tfKey,
+  );
+}
+
+/** 兼容 app.js 旧调用，Lightweight Charts 自带十字光标 */
+export function bindChartHover(_el, onHover) {
+  if (onHover) onHover(null);
+}
+
+export function destroyChart() {
+  if (resizeObs) resizeObs.disconnect();
+  if (chart) chart.remove();
+  chart = null;
+  candleSeries = null;
+  volumeSeries = null;
+  containerEl = null;
 }

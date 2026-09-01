@@ -25,10 +25,10 @@ from openctp_ctp import thostmduserapi as mdapi
 SIMNOW_APPID = "simnow_client_test"
 SIMNOW_AUTHCODE = "0000000000000000"
 
-# 默认订阅合约（可改成配置项；注意按季度换月）
+# 默认订阅合约（SimNow 当前主力月 2026-08；注意随季度换月更新）
 DEFAULT_SYMBOLS = [
-    "rb2510", "cu2507", "au2512", "ag2512",
-    "sc2507", "IF2507", "m2509", "i2509",
+    "rb2610", "cu2611", "au2612", "ag2612",
+    "sc2609", "IF2609", "m2609", "i2609",
 ]
 
 
@@ -58,29 +58,64 @@ class MdSpi(mdapi.CThostFtdcMdSpi):
             return
         self._gw.md_logged_in = True
         self._gw.emit({"type": "login", "account": self._gw.name, "status": "md_ok", "msg": "行情连接就绪"})
-        self._gw.subscribe(self._gw.md_symbols)
+        self._gw._do_subscribe()
 
     def OnRtnDepthMarketData(self, pDepthMarketData):
+        import time as _t
+        # 组装时间戳（毫秒，用于前端 K 线聚合；优先用 CTP 行情时间）
+        ts = None
+        try:
+            ut = getattr(pDepthMarketData, "UpdateTime", "") or ""
+            if ":" in ut:
+                import datetime as _dt
+                nowd = _dt.datetime.now()
+                h, m, s = ut.split(":")
+                ts = int(nowd.replace(hour=int(h), minute=int(m), second=int(s), microsecond=0).timestamp() * 1000)
+        except Exception:
+            ts = None
+        if ts is None:
+            ts = int(_t.time() * 1000)
+
+        # 净化盘口价格：CTP 无效档位返回 ~1.797e308 或超大值，统一置为 None 避免前端显示天文数字
+        def clean_price(v):
+            try:
+                if v is None:
+                    return None
+                v = float(v)
+                if v <= 0 or v > 1e7:  # 价格不可能超过 1e7（每手），无效档位过滤
+                    return None
+                return v
+            except Exception:
+                return None
+
+        def clean_vol(v):
+            try:
+                v = int(v)
+                return v if v > 0 else 0
+            except Exception:
+                return 0
+
         tick = {
             "type": "tick",
             "account": self._gw.name,
             "symbol": pDepthMarketData.InstrumentID,
             "price": pDepthMarketData.LastPrice,
-            "pre_close": pDepthMarketData.PreClosePrice,
-            "open": pDepthMarketData.OpenPrice,
-            "high": pDepthMarketData.HighestPrice,
-            "low": pDepthMarketData.LowestPrice,
+            "pre_close": clean_price(pDepthMarketData.PreClosePrice),
+            "open": clean_price(pDepthMarketData.OpenPrice),
+            "high": clean_price(pDepthMarketData.HighestPrice),
+            "low": clean_price(pDepthMarketData.LowestPrice),
             "volume": pDepthMarketData.Volume,
-            "bid1": pDepthMarketData.BidPrice1, "bidv1": pDepthMarketData.BidVolume1,
-            "bid2": pDepthMarketData.BidPrice2, "bidv2": pDepthMarketData.BidVolume2,
-            "bid3": pDepthMarketData.BidPrice3, "bidv3": pDepthMarketData.BidVolume3,
-            "bid4": pDepthMarketData.BidPrice4, "bidv4": pDepthMarketData.BidVolume4,
-            "bid5": pDepthMarketData.BidPrice5, "bidv5": pDepthMarketData.BidVolume5,
-            "ask1": pDepthMarketData.AskPrice1, "askv1": pDepthMarketData.AskVolume1,
-            "ask2": pDepthMarketData.AskPrice2, "askv2": pDepthMarketData.AskVolume2,
-            "ask3": pDepthMarketData.AskPrice3, "askv3": pDepthMarketData.AskVolume3,
-            "ask4": pDepthMarketData.AskPrice4, "askv4": pDepthMarketData.AskVolume4,
-            "ask5": pDepthMarketData.AskPrice5, "askv5": pDepthMarketData.AskVolume5,
+            "_ts": ts,
+            "bid1": clean_price(pDepthMarketData.BidPrice1), "bidv1": clean_vol(pDepthMarketData.BidVolume1),
+            "bid2": clean_price(pDepthMarketData.BidPrice2), "bidv2": clean_vol(pDepthMarketData.BidVolume2),
+            "bid3": clean_price(pDepthMarketData.BidPrice3), "bidv3": clean_vol(pDepthMarketData.BidVolume3),
+            "bid4": clean_price(pDepthMarketData.BidPrice4), "bidv4": clean_vol(pDepthMarketData.BidVolume4),
+            "bid5": clean_price(pDepthMarketData.BidPrice5), "bidv5": clean_vol(pDepthMarketData.BidVolume5),
+            "ask1": clean_price(pDepthMarketData.AskPrice1), "askv1": clean_vol(pDepthMarketData.AskVolume1),
+            "ask2": clean_price(pDepthMarketData.AskPrice2), "askv2": clean_vol(pDepthMarketData.AskVolume2),
+            "ask3": clean_price(pDepthMarketData.AskPrice3), "askv3": clean_vol(pDepthMarketData.AskVolume3),
+            "ask4": clean_price(pDepthMarketData.AskPrice4), "askv4": clean_vol(pDepthMarketData.AskVolume4),
+            "ask5": clean_price(pDepthMarketData.AskPrice5), "askv5": clean_vol(pDepthMarketData.AskVolume5),
         }
         self._gw.emit(tick)
 
@@ -173,22 +208,59 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
 
     # ---- 持仓 ----
     def OnRspQryInvestorPosition(self, pPosition, pRspInfo, nRequestID, bIsLast):
+        if pRspInfo and pRspInfo.ErrorID != 0:
+            self._gw.emit({
+                "type": "error",
+                "account": self._gw.name,
+                "msg": f"持仓查询失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})",
+            })
+            return
         if pPosition is None:
             return
-        self._gw.emit({
-            "type": "position",
-            "account": self._gw.name,
-            "symbol": pPosition.InstrumentID,
-            "direction": pPosition.PosiDirection,   # 多/空
-            "volume": pPosition.Position,
-            "today_volume": pPosition.TodayPosition,
-            "avail": pPosition.PositionAvailable,
-            "open_price": pPosition.OpenCostPrice,
-            "margin": pPosition.UseMargin,
-            "position_profit": pPosition.PositionProfit,
-            "close_volume": pPosition.CloseVolume,
-            "is_last": bIsLast,
-        })
+        try:
+            # PosiDirection: '2'=多, '3'=空
+            raw_dir = str(getattr(pPosition, "PosiDirection", "") or "")
+            direction = "Long" if raw_dir.endswith("2") else "Short"
+            posi_dir = 2 if direction == "Long" else 3
+            volume = int(pPosition.Position)
+            if volume <= 0:
+                volume = int(pPosition.YdPosition)
+            if volume <= 0:
+                return
+            # 可平数量 = 总持仓 - 冻结
+            frozen = int(pPosition.LongFrozen if posi_dir == 2 else pPosition.ShortFrozen)
+            avail = max(0, volume - frozen)
+            position_cost = float(getattr(pPosition, "PositionCost", 0) or 0)
+            open_cost = float(getattr(pPosition, "OpenCost", 0) or 0)
+            if position_cost > 0:
+                open_price = position_cost / volume
+            elif open_cost > 0:
+                open_price = open_cost / volume
+            else:
+                open_price = float(getattr(pPosition, "PreSettlementPrice", 0) or 0)
+            self._gw.emit({
+                "type": "position",
+                "account": self._gw.name,
+                "symbol": pPosition.InstrumentID,
+                "direction": direction,
+                "volume": volume,
+                "today_volume": int(pPosition.TodayPosition),
+                "yd_volume": int(pPosition.YdPosition),
+                "avail": avail,
+                "open_price": open_price,
+                "margin": float(pPosition.UseMargin),
+                "position_profit": float(pPosition.PositionProfit),
+                "close_profit": float(pPosition.CloseProfit),
+                "close_volume": int(pPosition.CloseVolume),
+                "exchange": pPosition.ExchangeID,
+                "is_last": bIsLast,
+            })
+        except Exception as exc:
+            self._gw.emit({
+                "type": "error",
+                "account": self._gw.name,
+                "msg": f"持仓解析失败：{exc}",
+            })
 
     # ---- 报单回报 ----
     def OnRtnOrder(self, pOrder):
@@ -248,6 +320,22 @@ class CtpGateway:
         self.md_spi = None
         self.md_symbols = list(DEFAULT_SYMBOLS)
         self.md_logged_in = False
+        self._req_id = 0
+
+    def _next_req_id(self):
+        self._req_id += 1
+        return self._req_id
+
+    def refresh_all(self):
+        """顺序刷新资金/持仓/委托（CTP 不宜并发查询）。"""
+        def _chain():
+            import time
+            self.query_balance()
+            time.sleep(0.8)
+            self.query_positions()
+            time.sleep(0.8)
+            self.query_orders()
+        threading.Thread(target=_chain, daemon=True).start()
 
     def connect(self):
         """建立交易 + 行情连接（各自带线程，不阻塞）。"""
@@ -262,32 +350,38 @@ class CtpGateway:
         self.md = self.md_spi._api
 
     def after_login(self):
-        self.query_balance()
-        self.query_positions()
-        self.query_orders()
+        self.refresh_all()
 
     def query_balance(self):
         if self.trader:
-            self.trader.ReqQryTradingAccount(tdapi.CThostFtdcQryTradingAccountField(), 0)
+            self.trader.ReqQryTradingAccount(tdapi.CThostFtdcQryTradingAccountField(), self._next_req_id())
 
     def query_positions(self):
         if self.trader:
             req = tdapi.CThostFtdcQryInvestorPositionField()
             req.BrokerID = self.broker_id
             req.InvestorID = self.user_id
-            self.trader.ReqQryInvestorPosition(req, 0)
+            self.trader.ReqQryInvestorPosition(req, self._next_req_id())
 
     def query_orders(self):
         if self.trader:
             req = tdapi.CThostFtdcQryOrderField()
             req.BrokerID = self.broker_id
             req.InvestorID = self.user_id
-            self.trader.ReqQryOrder(req, 0)
+            self.trader.ReqQryOrder(req, self._next_req_id())
 
     def subscribe(self, symbols):
-        """行情登录后订阅。symbols 为字符串列表。"""
+        """订阅行情。任何时机调用都安全：
+        - 若行情已登录，立即订阅；
+        - 若未登录，先记下清单，登录回调里会自动补订。
+        """
         self.md_symbols = list(symbols)
         if not self.md or not self.md_logged_in:
+            return
+        self._do_subscribe()
+
+    def _do_subscribe(self):
+        if not self.md:
             return
         encoded = [s.encode("utf-8") for s in self.md_symbols]
         self.md.SubscribeMarketData(encoded, len(encoded))

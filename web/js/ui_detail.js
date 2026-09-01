@@ -1,18 +1,19 @@
 /**
  * ui_detail.js — 账户明细页：行情列表 / K线 / 盘口 / 下单面板 / 持仓委托。
  */
-import { store, pxOf, emit } from "./store.js";
+import { store, pxOf, emit, getTick, tickIsLive } from "./store.js";
 import { buildCandles, renderChart } from "./chart.js";
+import { fetchBarHistory } from "./history.js";
 
 const SYMBOLS = [
-  { code: "rb2510", name: "螺纹钢", dec: 0 },
-  { code: "cu2507", name: "沪铜", dec: 0 },
-  { code: "au2512", name: "沪金", dec: 1 },
-  { code: "ag2512", name: "沪银", dec: 0 },
-  { code: "sc2507", name: "原油", dec: 1 },
-  { code: "IF2507", name: "沪深300", dec: 1 },
-  { code: "m2509", name: "豆粕", dec: 0 },
-  { code: "i2509", name: "铁矿石", dec: 1 },
+  { code: "rb2610", name: "螺纹钢", dec: 0, tick: 1 },
+  { code: "cu2611", name: "沪铜", dec: 0, tick: 10 },
+  { code: "au2612", name: "沪金", dec: 1, tick: 0.02 },
+  { code: "ag2612", name: "沪银", dec: 0, tick: 1 },
+  { code: "sc2609", name: "原油", dec: 1, tick: 0.1 },
+  { code: "IF2609", name: "沪深300", dec: 1, tick: 0.2 },
+  { code: "m2609", name: "豆粕", dec: 0, tick: 1 },
+  { code: "i2609", name: "铁矿石", dec: 1, tick: 0.5 },
 ];
 const TIME_FRAMES = [
   { key: "1m", label: "1分" },
@@ -27,12 +28,13 @@ export function renderDetail() {
   const account = stateAccount();
   if (!account) { emit({ type: "toast", msg: "请先在概览页选择账户" }); return; }
   const sym = currentSymbol();
-  const tick = store.ticks[store.sel];
-  const price = tick ? tick.price : 0;
-  const pre = tick ? tick.pre_close : 0;
+  const tick = getTick(store.sel);
+  const live = tickIsLive(store.sel);
+  const price = tick?.price > 0 ? tick.price : 0;
+  const pre = tick?.pre_close || 0;
   const chg = pre ? price - pre : 0;
   const pct = pre ? (chg / pre) * 100 : 0;
-  const pClass = cls(chg);
+  const pClass = price ? cls(chg) : "";
 
   // 明细头部
   document.getElementById("d-name").innerHTML = account;
@@ -41,17 +43,26 @@ export function renderDetail() {
 
   // 行情列表
   document.getElementById("watchlist").innerHTML = SYMBOLS.map((s) => {
-    const p = pxOf(s.code) || 0;
-    const pc = p ? ((p - (store.ticks[s.code]?.pre_close || s.code === store.sel ? (tick?.pre_close || 0) : 0)) / (store.ticks[s.code]?.pre_close || 1)) * 100 : 0;
-    return `<button class="wl-row${store.sel === s.code ? " active" : ""}" data-code="${s.code}">
+    const t = getTick(s.code);
+    const p = t?.price > 0 ? t.price : 0;
+    const pre = t?.pre_close;
+    let pcText = p ? "0.00%" : "—";
+    let pcCls = "";
+    if (p && pre && pre > 0) {
+      const pc = ((p - pre) / pre) * 100;
+      pcText = (pc >= 0 ? "+" : "") + pc.toFixed(2) + "%";
+      pcCls = cls(pc);
+    }
+    const stale = p && !tickIsLive(s.code) ? " stale" : "";
+    return `<button class="wl-row${store.sel === s.code ? " active" : ""}${stale}" data-code="${s.code}">
       <span class="wl-name">${s.name}<small>${s.code}</small></span>
       <span class="right tab">${p ? fmt(p, s.dec) : "—"}</span>
-      <span class="right tab ${cls(pc)}">${pc >= 0 ? "+" : ""}${pc.toFixed(2)}%</span></button>`;
+      <span class="right tab ${pcCls}">${pcText}</span></button>`;
   }).join("");
 
   // 图表头
   document.getElementById("ch-name").innerHTML = `${sym.name}<small>${sym.code}</small>`;
-  document.getElementById("ch-exch").textContent = tick ? "SimNow" : "连接中…";
+  document.getElementById("ch-exch").textContent = live ? "SimNow" : (tick ? "快照" : "连接中…");
   document.getElementById("ch-price").textContent = price ? fmt(price, sym.dec) : "—";
   document.getElementById("ch-price").className = pClass;
   document.getElementById("ch-change").textContent = chg ? `${chg >= 0 ? "+" : ""}${fmt(chg, sym.dec)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : "—";
@@ -61,13 +72,14 @@ export function renderDetail() {
   document.getElementById("tf-tabs").innerHTML = TIME_FRAMES.map((t) =>
     `<button class="tf${store.tf === t.key ? " active" : ""}" data-tf="${t.key}">${t.label}</button>`).join("");
 
-  // K线
+  // K线（历史 + 实时）
+  fetchBarHistory(store.sel, store.tf);
   const candles = buildCandles(store.sel);
-  renderChart(document.getElementById("chart-svg"), candles, price, sym.dec, store.tf);
+  renderChart(document.getElementById("chart-container"), candles, price, sym.dec, store.tf);
 
   // 盘口
   document.getElementById("book-code").textContent = store.sel;
-  renderBook(tick, sym.dec);
+  renderBook(tick, sym.dec, sym.tick);
 
   // 下单面板
   document.getElementById("t-sym").textContent = `${sym.name} ${sym.code}`;
@@ -111,23 +123,30 @@ function accountStats(account) {
     <div class="ds-item"><span>手续费</span><b class="tab">${fmt(b.commission)}</b></div>`;
 }
 
-function renderBook(tick, dec) {
-  if (!tick) {
+function renderBook(tick, dec, tickSize) {
+  if (!tick || !(tick.price > 0)) {
     document.getElementById("book-asks").innerHTML = "";
     document.getElementById("book-bids").innerHTML = "";
     document.getElementById("book-mid").textContent = "—";
     return;
   }
-  const row = (price, vol, side) =>
-    `<div class="book-row ${side}"><span class="bar" style="width:${Math.min(100, vol / 30 * 100)}%"></span><span class="px">${fmt(price, dec)}</span><span class="qty">${vol}</span></div>`;
+  const row = (price, vol, side) => {
+    if (price == null || !isFinite(price)) return "";
+    return `<div class="book-row ${side}"><span class="bar" style="width:${Math.min(100, vol / 30 * 100)}%"></span><span class="px">${fmt(price, dec)}</span><span class="qty">${vol}</span></div>`;
+  };
+  const ts = (tickSize && tickSize > 0) ? tickSize : 1;
+  // 档位补齐：SimNow 第二套环境只推第1档，用第1档价 ± n*tick 推算 2-5 档（无真实值的近似展示）
+  const roundP = (v) => Number(v.toFixed(dec));
   let asks = "";
   for (let i = 5; i >= 1; i--) {
-    const p = tick[`ask${i}`], v = tick[`askv${i}`];
+    let p = tick[`ask${i}`], v = tick[`askv${i}`];
+    if (p == null && tick.ask1 != null) { p = roundP(tick.ask1 + (i - 1) * ts); v = tick.askv1 || 1; }
     asks += p != null ? row(p, v, "ask") : "";
   }
   let bids = "";
   for (let i = 1; i <= 5; i++) {
-    const p = tick[`bid${i}`], v = tick[`bidv${i}`];
+    let p = tick[`bid${i}`], v = tick[`bidv${i}`];
+    if (p == null && tick.bid1 != null) { p = roundP(tick.bid1 - (i - 1) * ts); v = tick.bidv1 || 1; }
     bids += p != null ? row(p, v, "bid") : "";
   }
   document.getElementById("book-asks").innerHTML = asks;
@@ -186,5 +205,5 @@ export function rerenderChart() {
   const sym = currentSymbol();
   const tick = store.ticks[store.sel];
   const candles = buildCandles(store.sel);
-  renderChart(document.getElementById("chart-svg"), candles, tick ? tick.price : 0, sym.dec, store.tf);
+  renderChart(document.getElementById("chart-container"), candles, tick ? tick.price : 0, sym.dec, store.tf);
 }

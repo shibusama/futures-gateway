@@ -7,6 +7,7 @@ import os
 from aiohttp import web
 
 from .config import load_config
+from .history import fetch_bars
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
 
@@ -16,6 +17,7 @@ def build_app(mgr):
     app["mgr"] = mgr
 
     # 静态前端
+    app.router.add_get("/api/bars", bars_handler)
     app.router.add_get("/", index_handler)
     app.router.add_get("/ws", websocket_handler)
     app.router.add_static("/", WEB_DIR, show_index=True)
@@ -25,6 +27,16 @@ def build_app(mgr):
 
 async def index_handler(request):
     return web.FileResponse(os.path.join(WEB_DIR, "index.html"))
+
+
+async def bars_handler(request):
+    """GET /api/bars?symbol=rb2610&period=1m"""
+    symbol = request.query.get("symbol", "")
+    period = request.query.get("period", "1m")
+    if period not in ("1m", "5m", "1d"):
+        period = "1m"
+    bars = await asyncio.to_thread(fetch_bars, symbol, period)
+    return web.json_response({"ok": True, "symbol": symbol.upper(), "period": period, "bars": bars})
 
 
 async def websocket_handler(request):

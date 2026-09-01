@@ -3,6 +3,7 @@
  */
 import { store, totals, emit } from "./store.js";
 import { connect, sendOrder } from "./ws.js";
+import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
 import { renderDetail, rerenderChart } from "./ui_detail.js";
 import { bindChartHover } from "./chart.js";
@@ -54,6 +55,16 @@ function bindEvents() {
   document.getElementById("nav-detail").addEventListener("click", () => showView("detail"));
   document.getElementById("back-btn").addEventListener("click", () => showView("overview"));
 
+  // 概览汇总 Tab
+  document.getElementById("sum-tab-symbol").addEventListener("click", () => { store.sumTab = "symbol"; render(); });
+  document.getElementById("sum-tab-account").addEventListener("click", () => { store.sumTab = "account"; render(); });
+
+  // 按账户汇总行 → 下钻
+  document.getElementById("sum-body-account").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-acct]");
+    if (row) { store.activeAcct = row.getAttribute("data-acct"); showView("detail"); }
+  });
+
   // 概览账户行 → 下钻
   document.getElementById("acct-list").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-view]");
@@ -69,7 +80,12 @@ function bindEvents() {
   // 周期切换
   document.getElementById("tf-tabs").addEventListener("click", (e) => {
     const b = e.target.closest(".tf");
-    if (b) { store.tf = b.getAttribute("data-tf"); rerenderChart(); }
+    if (b) {
+      store.tf = b.getAttribute("data-tf");
+      delete store.barHistory[`${store.sel}_${store.tf}`];
+      fetchBarHistory(store.sel, store.tf);
+      rerenderChart();
+    }
   });
 
   // 下单面板
@@ -107,8 +123,8 @@ function bindEvents() {
   document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
   document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
 
-  // K线悬停
-  bindChartHover(document.getElementById("chart-svg"), () => {
+  // K线悬停（Lightweight Charts 内置十字光标）
+  bindChartHover(document.getElementById("chart-container"), () => {
     if (store.view === "detail") rerenderChart();
   });
 }
@@ -127,11 +143,12 @@ function toast(text) {
 window.addEventListener("ftd-event", (e) => {
   const d = e.detail;
   if (d.type === "conn") { renderHeader(d.status); }
-  else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position") {
+  else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position" || d.type === "history") {
     render();
   } else if (d.type === "tick") {
-    // 行情节流渲染：只重绘当前视图里受影响的部分
-    if (store.view === "detail" && (d.symbol === store.sel || d.symbol)) render();
+    // 行情来了就重绘（当前视图 detail 时刷新行情列表/图表；overview 时无需全量重绘顶部聚合每 tick 都做，节流）
+    if (store.view === "detail") render();
+    else renderHeader("open");
   } else if (d.type === "order" || d.type === "trade") {
     if (store.view === "detail") renderDetail();
   } else if (d.type === "error") {

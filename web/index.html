@@ -35,11 +35,23 @@
         <div class="empty" id="acct-empty" style="display:none">config.json 中未配置账户，或网关未连接</div>
       </div>
       <div class="panel">
-        <div class="panel-title">按品种汇总 <small>（跨账户合并）</small></div>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>品种</th><th>多头手数</th><th>空头手数</th><th>净持仓</th><th>浮动盈亏</th></tr></thead>
-          <tbody id="sum-body"></tbody>
-        </table></div>
+        <div class="sum-tabs">
+          <button id="sum-tab-symbol" class="bt active">按品种汇总</button>
+          <button id="sum-tab-account" class="bt">按账户汇总</button>
+          <span class="sum-hint" id="sum-hint">（跨账户合并）</span>
+        </div>
+        <div class="tbl-wrap" id="sum-table-symbol">
+          <table>
+            <thead><tr><th>品种</th><th>多头手数</th><th>空头手数</th><th>净持仓</th><th>浮动盈亏</th></tr></thead>
+            <tbody id="sum-body-symbol"></tbody>
+          </table>
+        </div>
+        <div class="tbl-wrap" id="sum-table-account" style="display:none">
+          <table>
+            <thead><tr><th>账户</th><th>多头手数</th><th>空头手数</th><th>净持仓</th><th>占用保证金</th><th>浮动盈亏</th></tr></thead>
+            <tbody id="sum-body-account"></tbody>
+          </table>
+        </div>
         <div class="empty" id="sum-empty" style="display:none">暂无持仓</div>
       </div>
       <div class="roadmap" id="roadmap"></div>
@@ -70,7 +82,7 @@
         </div>
         <div class="chart">
           <div class="ohlc" id="ohlc"></div>
-          <svg id="chart-svg" class="candles" viewBox="0 0 1000 340"></svg>
+          <div id="chart-container" class="chart-container"></div>
         </div>
       </section>
       <aside class="right-col">
