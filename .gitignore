@@ -13,6 +13,11 @@ flow/
 # 扫描临时产物
 xml-scan-*.txt
 ctp-keyword-scan.txt
-# 日志
+# 日志与临时文件
 gateway.log
+gateway.err
+config.json.bak
+scripts/_*.py
+scripts/test_login.py
+scripts/flow/
 

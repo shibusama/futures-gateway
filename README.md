@@ -34,6 +34,7 @@ futures-gateway/
 │       └── app.js       # 装配与事件
 ├── config.json          # 账号配置（首次运行自动从示例生成）
 ├── config.json.example
+├── docs/                # 需求、调研、历史 demo
 ├── requirements.txt
 └── start.bat
 ```
@@ -94,7 +95,7 @@ futures-gateway/
 - 行情订阅的合约列表写死在前端 `ui_detail.js` 的 `SYMBOLS` 与网关 `ctp.py` 的 `DEFAULT_SYMBOLS`，后续可做成配置项/前端自选
 - CTP 合约代码按季度换月，旧月份合约订阅会失败（网关会推送 error 提示），需同步更新
 - 桌面端（QT/PySide）为后续规划：届时复用 `store.js` 的状态逻辑或后端数据接口
-- 实盘 CTP 需要券商分配的 AppID/AuthCode/前置地址 + 穿透式监管认证，另见 `ctp-technical-research.md`
+- 实盘 CTP 需要券商分配的 AppID/AuthCode/前置地址 + 穿透式监管认证，另见 [docs/ctp-technical-research.md](docs/ctp-technical-research.md)
 
 ## 依赖
 
@@ -102,4 +103,4 @@ futures-gateway/
 
 - `openctp-ctp` — 标准 CTP API 的 Python 直译封装，自带官方 DLL（行情 + 交易）
 - `aiohttp` — 异步 Web 框架：静态前端 + WebSocket 实时推送
-- `akshare`
+- `akshare` — 历史 K 线数据源（新浪期货分钟/日线，供图表回显）
