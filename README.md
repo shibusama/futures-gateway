@@ -15,29 +15,31 @@
 ## 目录结构
 
 ```
-├── gateway/
-│   ├── config.py        # 配置读取（config.json）
-│   ├── ctp.py           # openctp_ctp 封装（行情 + 交易，一账号一实例）
-│   ├── account_mgr.py   # 多账号管理 + WebSocket 广播
-│   ├── server.py        # aiohttp：静态前端 + /ws
-│   ├── history.py       # 历史 K 线（akshare）
-│   └── main.py          # 入口
-├── web/
+├── gateway/                 # Python CTP 网关
+│   ├── config.py
+│   ├── ctp.py
+│   ├── account_mgr.py
+│   ├── server.py
+│   ├── history.py
+│   └── main.py
+├── web/                     # 网页前端（浏览器 + 桌面版共用）
 │   ├── index.html
 │   ├── css/styles.css
 │   └── js/
-│       ├── store.js     # 状态仓库（纯逻辑）
-│       ├── ws.js        # WebSocket 客户端
-│       ├── chart.js     # K 线（Lightweight Charts）
-│       ├── history.js   # 历史 K 线拉取
-│       ├── ui_overview.js  # 多账户概览
-│       ├── ui_detail.js    # 账户明细（行情/盘口/下单/持仓）
-│       └── app.js       # 装配与事件
-├── docs/                # 需求、调研、历史 demo
-├── config.json          # 账号配置（勿提交 Git）
+├── docs/                    # 需求与调研文档
+├── installer/               # Inno Setup 安装包脚本
+├── desktop_app.py           # PyWebView 桌面入口
+├── desktop_single.py        # 单实例锁
+├── desktop_updater.py       # GitHub Release 自动更新
+├── app_paths.py             # 打包/开发路径
+├── app_version.py           # 桌面版版本号
+├── FuturesTerminal.spec     # PyInstaller 配置
+├── build_desktop_exe.bat      # 打包 exe
+├── build_desktop_release.bat  # 打包 exe + zip + 安装包
+├── run_desktop.bat            # 桌面开发调试
+├── start.bat                  # 浏览器 + 网关
 ├── config.json.example
-├── requirements.txt
-└── start.bat
+└── requirements.txt
 ```
 
 ## 使用步骤
@@ -111,7 +113,16 @@ git push origin master
 git push origin desktop-v1.0.1
 ```
 
-- [ ] **6. 等 GitHub Actions** — 推送 `desktop-v*` tag 后，[Release Desktop](.github/workflows/release-desktop.yml) 工作流会自动构建并上传 `FuturesTerminal-win64.zip` 到 GitHub Release
+- [ ] **6. 手动发布 GitHub Release** — 本地打包完成后上传（不用 CI）：
+
+```bash
+gh release create desktop-v1.0.1 \
+  dist/FuturesTerminal-win64.zip \
+  dist/installer/FuturesTerminal-Setup-1.0.1.exe \
+  --title "Desktop v1.0.1" \
+  --notes "更新说明"
+```
+
 - [ ] **7. 通知用户**（任选其一）：
   - **自动更新**：用户重启程序，若 Release 版本高于本地版本会提示下载（需能访问 GitHub）
   - **手动分发**：把新的 `FuturesTerminal-Setup-x.y.z.exe` 或 zip 发给朋友
@@ -127,8 +138,6 @@ git push origin desktop-v1.0.1
 | 自动 | 启动 `FuturesTerminal.exe`，按提示更新 |
 | 手动 | 运行 `FuturesTerminal.exe --check-update` |
 | 重装 | 运行新版 Setup，或解压 zip 覆盖原目录（保留同目录 `config.json`） |
-
-C++ QML 目录 `desktop/` 为早期实验，日常请用 PyWebView 桌面版。
 
 ## 配置说明（config.json）
 
@@ -166,9 +175,6 @@ C++ QML 目录 `desktop/` 为早期实验，日常请用 PyWebView 桌面版。
 
 - 行情订阅的合约列表写死在前端 `ui_detail.js` 的 `SYMBOLS` 与网关 `ctp.py` 的 `DEFAULT_SYMBOLS`，后续可做成配置项/前端自选
 - CTP 合约代码按季度换月，旧月份合约订阅会失败（网关会推送 error 提示），需同步更新
-- 桌面端（QT/PySide）为后续规划：届时复用 `store.js` 的状态逻辑或后端数据接口
-- **桌面版（当前推荐）**：PyWebView + `FuturesTerminal.exe`；见上文「桌面版」与 `build_desktop_release.bat`
-- C++ QML 目录 `desktop/` 为早期实验，不再维护
 - 实盘 CTP 需要券商分配的 AppID/AuthCode/前置地址 + 穿透式监管认证，另见 [docs/ctp-technical-research.md](docs/ctp-technical-research.md)
 
 ## 依赖

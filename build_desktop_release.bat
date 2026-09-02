@@ -60,7 +60,13 @@ echo.
 echo Artifacts:
 echo   dist\FuturesTerminal\FuturesTerminal.exe
 echo   %ZIP%
+if exist "dist\installer\FuturesTerminal-Setup-!APP_VER!.exe" (
+    echo   dist\installer\FuturesTerminal-Setup-!APP_VER!.exe
+)
 echo.
-echo GitHub Release: tag desktop-v!APP_VER! and upload FuturesTerminal-win64.zip
+echo Publish to GitHub Release ^(manual^):
+echo   git tag desktop-v!APP_VER!
+echo   git push origin desktop-v!APP_VER!
+echo   gh release create desktop-v!APP_VER! "%ZIP%" "dist\installer\FuturesTerminal-Setup-!APP_VER!.exe" --title "Desktop v!APP_VER!"
 echo.
 pause
