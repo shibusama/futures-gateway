@@ -2,6 +2,7 @@
  * history.js — 从网关拉取历史 K 线（akshare）
  */
 import { store, emit, seedTick } from "./store.js";
+import { isOfflineMode } from "./offline.js";
 
 const inflight = new Set();
 
@@ -41,6 +42,9 @@ export function fetchBarHistory(symbol, tf = store.tf) {
   if (store.barHistory[key]?.length) {
     seedFromBars(symbol, store.barHistory[key]);
     return Promise.resolve(store.barHistory[key]);
+  }
+  if (isOfflineMode()) {
+    return Promise.resolve([]);
   }
 
   inflight.add(key);

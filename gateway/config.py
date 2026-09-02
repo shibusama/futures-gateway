@@ -4,9 +4,27 @@ import json
 import os
 import shutil
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
-EXAMPLE_PATH = os.path.join(BASE_DIR, "config.json.example")
+from app_paths import app_root, bundle_root
+
+
+def base_dir() -> str:
+    return os.environ.get("FUTURES_APP_ROOT") or app_root()
+
+
+def config_path() -> str:
+    return os.path.join(base_dir(), "config.json")
+
+
+def example_path() -> str:
+    bundled = os.path.join(bundle_root(), "config.json.example")
+    if os.path.isfile(bundled):
+        return bundled
+    return os.path.join(base_dir(), "config.json.example")
+
+
+BASE_DIR = base_dir()
+CONFIG_PATH = config_path()
+EXAMPLE_PATH = example_path()
 
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
@@ -26,13 +44,15 @@ DEFAULT_CONFIG = {
 
 def ensure_config():
     """若 config.json 不存在，从示例模板生成一份占位配置。"""
-    if not os.path.exists(CONFIG_PATH):
-        if os.path.exists(EXAMPLE_PATH):
-            shutil.copyfile(EXAMPLE_PATH, CONFIG_PATH)
+    path = config_path()
+    ex = example_path()
+    if not os.path.exists(path):
+        if os.path.exists(ex):
+            shutil.copyfile(ex, path)
         else:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=2)
-    return CONFIG_PATH
+    return path
 
 
 def load_config():

@@ -59,6 +59,77 @@
    - 多账户概览：总权益 / 可用 / 浮动盈亏 / 保证金 + 账户列表 + 按品种汇总
    - 账户明细：真行情 K线 / 五档盘口 / 下单（SimNow 模拟单）
 
+### 桌面版（推荐）
+
+**日常使用 — 安装包或绿色版：**
+
+1. **用户安装**：运行 `FuturesTerminal-Setup-x.y.z.exe`，或解压 `FuturesTerminal-win64.zip` / 复制整个 `FuturesTerminal` 文件夹  
+2. 在 **exe 同目录** 放置 `config.json`（从 `config.json.example` 复制）  
+3. 双击 `FuturesTerminal.exe`
+
+**开发调试：** `run_desktop.bat`（不打包，直接 PyWebView）
+
+| 能力 | 说明 |
+|------|------|
+| UI | 与浏览器 **100% 相同**（同一套 `web/`，但打包进 exe，非线上网页） |
+| 网关 | 启动时自动拉起，关闭窗口时结束**本次**启动的网关 |
+| 单实例 | 已运行时会提示，不会开多个窗口 |
+| 检查更新 | 启动时询问；或运行 `FuturesTerminal.exe --check-update` |
+| 日志 | exe 同目录 `gateway.log` |
+
+#### 重要：改 web 后朋友桌面端会不会变？
+
+**不会自动变。** 只 `git push` 到 GitHub，已安装桌面版的朋友**看不到**你的 web 修改。
+
+桌面版把 `web/`、`gateway/` 等**打进 exe**，和 GitHub 仓库没有实时连接。必须发**新的桌面版 Release**，用户才会更新。
+
+| 你的操作 | 朋友桌面端 |
+|----------|------------|
+| 只改 `web/` 并 push | ❌ 无变化 |
+| 改代码 + 升版本 + 发 `desktop-v*` Release | ✅ 启动时提示更新，或手动重装 |
+
+#### 桌面版发布 Checklist（维护者）
+
+每次要让用户（或朋友）拿到新界面/新功能时，按顺序做：
+
+- [ ] **1. 改代码** — 常见：`web/`（界面）、`gateway/`（后端）、`desktop_app.py` 等
+- [ ] **2. 升版本号** — 编辑 `app_version.py` 里的 `__version__`（如 `1.0.0` → `1.0.1`）
+- [ ] **3. 本地验证**
+  - 浏览器：`start.bat` → 打开 `http://127.0.0.1:8765` 确认功能正常
+  - 桌面：`run_desktop.bat` 或 `build_desktop_release.bat` 后运行 `dist\FuturesTerminal\FuturesTerminal.exe`
+- [ ] **4. 本地打包** — 运行 `build_desktop_release.bat`，确认产出：
+  - `dist\FuturesTerminal\FuturesTerminal.exe`（绿色版）
+  - `dist\FuturesTerminal-win64.zip`（**自动更新用，必须上传 Release**）
+  - `dist\installer\FuturesTerminal-Setup-x.y.z.exe`（可选，需 [Inno Setup 6](https://jrsoftware.org/isinfo.php)）
+- [ ] **5. 提交并打 tag** — tag 格式必须为 `desktop-v` + 版本号，与 `__version__` 一致：
+
+```bash
+git add .
+git commit -m "desktop 1.0.1: 简要说明改了什么"
+git tag desktop-v1.0.1
+git push origin master
+git push origin desktop-v1.0.1
+```
+
+- [ ] **6. 等 GitHub Actions** — 推送 `desktop-v*` tag 后，[Release Desktop](.github/workflows/release-desktop.yml) 工作流会自动构建并上传 `FuturesTerminal-win64.zip` 到 GitHub Release
+- [ ] **7. 通知用户**（任选其一）：
+  - **自动更新**：用户重启程序，若 Release 版本高于本地版本会提示下载（需能访问 GitHub）
+  - **手动分发**：把新的 `FuturesTerminal-Setup-x.y.z.exe` 或 zip 发给朋友
+
+**版本规则：** 自动更新比较的是 exe 内嵌的 `__version__` 与 Release tag（`desktop-v1.0.1` → `1.0.1`）。只 push 代码、不升版本、不打 tag，用户端**永远不会**更新。
+
+**首次发版：** 若仓库还没有任何 `desktop-v*` Release，自动更新不会生效；需至少完成一次上述 checklist。
+
+**用户侧更新方式：**
+
+| 方式 | 操作 |
+|------|------|
+| 自动 | 启动 `FuturesTerminal.exe`，按提示更新 |
+| 手动 | 运行 `FuturesTerminal.exe --check-update` |
+| 重装 | 运行新版 Setup，或解压 zip 覆盖原目录（保留同目录 `config.json`） |
+
+C++ QML 目录 `desktop/` 为早期实验，日常请用 PyWebView 桌面版。
+
 ## 配置说明（config.json）
 
 ```jsonc
@@ -96,6 +167,8 @@
 - 行情订阅的合约列表写死在前端 `ui_detail.js` 的 `SYMBOLS` 与网关 `ctp.py` 的 `DEFAULT_SYMBOLS`，后续可做成配置项/前端自选
 - CTP 合约代码按季度换月，旧月份合约订阅会失败（网关会推送 error 提示），需同步更新
 - 桌面端（QT/PySide）为后续规划：届时复用 `store.js` 的状态逻辑或后端数据接口
+- **桌面版（当前推荐）**：PyWebView + `FuturesTerminal.exe`；见上文「桌面版」与 `build_desktop_release.bat`
+- C++ QML 目录 `desktop/` 为早期实验，不再维护
 - 实盘 CTP 需要券商分配的 AppID/AuthCode/前置地址 + 穿透式监管认证，另见 [docs/ctp-technical-research.md](docs/ctp-technical-research.md)
 
 ## 依赖

@@ -7,6 +7,8 @@ import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
 import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./ui_detail.js";
 import { bindChartHover } from "./chart.js";
+import { initOfflineDemo, isOfflineMode } from "./offline.js";
+import { initTheme, toggleTheme } from "./theme.js";
 
 /* ---------- 视图切换 ---------- */
 function showView(v) {
@@ -27,8 +29,11 @@ function render() {
 
 function renderHeader(conn) {
   const badge = document.getElementById("conn-badge");
-  badge.textContent = conn === "open" ? "CTP 已连接" : conn === "connecting" ? "连接中" : "未连接";
-  badge.className = "demo-badge " + (conn === "open" ? " ok" : conn === "connecting" ? " wait" : "");
+  badge.textContent = conn === "open" ? "CTP 已连接"
+    : conn === "connecting" ? "连接中"
+    : conn === "offline" ? "UI 对比"
+    : "未连接";
+  badge.className = "demo-badge " + (conn === "open" ? " ok" : conn === "connecting" ? " wait" : conn === "offline" ? " wait" : "");
   document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
   // 顶部聚合条
   if (store.view === "overview") {
@@ -54,6 +59,7 @@ function bindEvents() {
   document.getElementById("nav-overview").addEventListener("click", () => showView("overview"));
   document.getElementById("nav-detail").addEventListener("click", () => showView("detail"));
   document.getElementById("back-btn").addEventListener("click", () => showView("overview"));
+  document.getElementById("theme-toggle").addEventListener("click", () => toggleTheme());
 
   // 概览汇总 Tab
   document.getElementById("sum-tab-symbol").addEventListener("click", () => { store.sumTab = "symbol"; render(); });
@@ -174,7 +180,21 @@ window.addEventListener("ftd-event", (e) => {
 
 /* ---------- 启动 ---------- */
 bindEvents();
-connect();
+initTheme();
+
+if (isOfflineMode()) {
+  initOfflineDemo();
+  render();
+  const foot = document.querySelector(".foot");
+  if (foot) foot.textContent = "UI 对比模式 · 演示数据 · 不连接 Python 网关 · 不构成投资建议";
+} else {
+  connect();
+}
+
+window.addEventListener("theme-change", () => {
+  if (store.view === "detail") rerenderChart();
+  render();
+});
 
 // 时钟
 setInterval(() => {

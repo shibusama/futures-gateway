@@ -86,8 +86,10 @@ export function renderOverview() {
   }
 
   document.getElementById("roadmap").innerHTML =
-    `<b>连接状态 →</b> 网关 ${store.conn === "open" ? "已连接" : "未连接"} · ${store.accounts.length} 个账户 ·
-     行情/持仓/委托实时来自本地 CTP(SimNow) 网关。`;
+    store.conn === "offline"
+      ? `<b>UI 对比模式 →</b> 未连接 Python 网关 · 演示数据 · 布局与线上一致，仅供界面对照。`
+      : `<b>连接状态 →</b> 网关 ${store.conn === "open" ? "已连接" : "未连接"} · ${store.accounts.length} 个账户 ·
+         行情/持仓/委托实时来自本地 CTP(SimNow) 网关。`;
 
   emit({ type: "ui", view: "overview" });
 }

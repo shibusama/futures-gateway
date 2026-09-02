@@ -10,7 +10,17 @@ from aiohttp import web
 from .config import load_config
 from .history import fetch_bars
 
-WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+from app_paths import bundle_root
+
+
+def web_dir() -> str:
+    bundled = os.path.join(bundle_root(), "web")
+    if os.path.isdir(bundled):
+        return bundled
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+
+
+WEB_DIR = web_dir()
 
 
 def build_app(mgr):
@@ -103,7 +113,8 @@ def run_server(mgr, config):
         open_host = host if host not in ("0.0.0.0", "::") else "127.0.0.1"
         url = f"http://{open_host}:{port}"
         print(f"  服务已启动: {url}  （Ctrl+C 停止）")
-        webbrowser.open(url)
+        if not os.environ.get("FUTURES_DESKTOP"):
+            webbrowser.open(url)
         try:
             while True:
                 await asyncio.sleep(3600)

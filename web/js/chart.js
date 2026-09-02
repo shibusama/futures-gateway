@@ -5,6 +5,7 @@
 import { createChart } from "https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.mjs";
 import { store } from "./store.js";
 import { historyKey } from "./history.js";
+import { effectiveDark } from "./theme.js";
 
 const DISPLAY_SLOTS = 500;
 let chart = null;
@@ -82,7 +83,7 @@ function tfBucketMs(tf) {
 }
 
 function isDark() {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return effectiveDark();
 }
 
 function chartTheme() {

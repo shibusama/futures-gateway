@@ -19,6 +19,7 @@ DESC = {
     "openctp-ctp": "标准 CTP API 的 Python 直译封装，自带官方 DLL（行情 + 交易）",
     "aiohttp": "异步 Web 框架：静态前端 + WebSocket 实时推送",
     "akshare": "历史 K 线数据源（新浪期货分钟/日线，供图表回显）",
+    "pywebview": "桌面版原生窗口（WebView2），嵌入现有 web/ 界面",
 }
 
 

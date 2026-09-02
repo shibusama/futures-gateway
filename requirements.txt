@@ -1,3 +1,4 @@
 openctp-ctp
 aiohttp
 akshare
+pywebview
