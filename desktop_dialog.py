@@ -11,7 +11,8 @@ def show_message(text: str, title: str = "期界 · 期货交易终端", *, erro
         return
     import ctypes
 
-    flags = 0x00000010 if error else 0x00000040  # MB_ICONERROR / MB_ICONINFORMATION
+    # MB_SYSTEMMODAL：置顶，避免被 PyWebView 主窗口挡住
+    flags = 0x00001000 | (0x00000010 if error else 0x00000040)
     ctypes.windll.user32.MessageBoxW(None, text, title, flags)
 
 
@@ -21,7 +22,7 @@ def ask_yes_no(text: str, title: str = "期界 · 期货交易终端") -> bool:
         return False
     import ctypes
 
-    rc = ctypes.windll.user32.MessageBoxW(None, text, title, 0x00000024)
+    rc = ctypes.windll.user32.MessageBoxW(None, text, title, 0x00001000 | 0x00000024)
     return rc == 6
 
 
