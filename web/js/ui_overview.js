@@ -8,13 +8,17 @@ const cls = (v) => (v >= 0 ? "up" : "down");
 
 export function renderOverview() {
   const t = totals();
+  const equityText = t.hasBalance ? fmt(t.equity) : "—";
+  const availText = t.hasBalance ? fmt(t.avail) : "—";
+  const floatText = t.hasBalance ? `${t.float >= 0 ? "+" : ""}${fmt(t.float)}` : "—";
+  const marginText = t.hasBalance ? fmt(t.margin) : "—";
 
   // 4 大数字
   document.getElementById("ov-stats").innerHTML = `
-    <div class="stat-card"><span>总权益</span><b class="${cls(t.equity)}">${fmt(t.equity)}</b></div>
-    <div class="stat-card"><span>可用资金</span><b>${fmt(t.avail)}</b></div>
-    <div class="stat-card"><span>浮动盈亏</span><b class="${cls(t.float)}">${t.float >= 0 ? "+" : ""}${fmt(t.float)}</b></div>
-    <div class="stat-card"><span>占用保证金</span><b>${fmt(t.margin)}</b></div>`;
+    <div class="stat-card"><span>总权益</span><b class="${t.hasBalance ? cls(t.equity) : ""}">${equityText}</b></div>
+    <div class="stat-card"><span>可用资金</span><b>${availText}</b></div>
+    <div class="stat-card"><span>浮动盈亏</span><b class="${t.hasBalance ? cls(t.float) : ""}">${floatText}</b></div>
+    <div class="stat-card"><span>占用保证金</span><b>${marginText}</b></div>`;
 
   // 账户列表
   const list = store.accounts;

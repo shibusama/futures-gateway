@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import subprocess
 
-    from desktop_api import DesktopApi
-    from desktop_tray import TrayController
+    from .api import DesktopApi
+    from .tray import TrayController
 
 
 class DesktopRuntime:
@@ -72,7 +72,7 @@ class DesktopRuntime:
 
     def check_updates(self) -> None:
         try:
-            from desktop_updater import check_and_prompt
+            from .updater import check_and_prompt
 
             if check_and_prompt():
                 self.request_quit()
@@ -80,8 +80,8 @@ class DesktopRuntime:
             pass
 
     def export_diagnostics(self) -> None:
-        from desktop_dialog import show_message
-        from desktop_logging import export_diagnostics
+        from .dialog import show_message
+        from .logging import export_diagnostics
 
         try:
             path = export_diagnostics()

@@ -28,11 +28,15 @@
 │   └── js/
 ├── docs/                    # 需求与调研文档
 ├── installer/               # Inno Setup 安装包脚本
-├── desktop_app.py           # PyWebView 桌面入口
-├── desktop_single.py        # 单实例锁
-├── desktop_updater.py       # GitHub Release 自动更新
-├── app_paths.py             # 打包/开发路径
-├── app_version.py           # 桌面版版本号
+├── desktop/                 # 桌面壳（PyWebView 窗口/托盘/更新/单实例/日志/配置向导）
+│   ├── app.py               #   桌面入口实现：from desktop.app import main
+│   ├── api.py               #   PyWebView JS 桥
+│   ├── tray.py              #   系统托盘
+│   ├── updater.py           #   GitHub Release 自动更新
+│   └── ...                  #   dialog/setup/single/menu/runtime/logging/进度窗等
+├── desktop_app.py           # 桌面版薄入口：转调 desktop/app.py 的 main()
+├── app_paths.py             # 打包/开发路径（gateway 与 desktop 共用，留根）
+├── app_version.py           # 桌面版版本号（gateway 与 desktop 共用，留根）
 ├── FuturesTerminal.spec     # PyInstaller 配置
 ├── build_desktop_exe.bat      # 打包 exe
 ├── build_desktop_release.bat  # 打包 exe + zip + 安装包
@@ -100,7 +104,7 @@
 
 每次要让用户（或朋友）拿到新界面/新功能时，按顺序做：
 
-- [ ] **1. 改代码** — 常见：`web/`（界面）、`gateway/`（后端）、`desktop_app.py` 等
+- [ ] **1. 改代码** — 常见：`web/`（界面）、`gateway/`（后端）、`desktop/`（桌面壳，入口 `desktop_app.py`）等
 - [ ] **2. 升版本号** — 编辑 `app_version.py` 里的 `__version__`（如 `1.0.0` → `1.0.1`）
 - [ ] **3. 本地验证**
   - 浏览器：`start.bat` → 打开 `http://127.0.0.1:8765` 确认功能正常

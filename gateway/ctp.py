@@ -188,7 +188,26 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
             self._gw.emit({"type": "login", "account": self._gw.name, "status": "fail", "msg": f"登录失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})"})
             return
         self._gw.emit({"type": "login", "account": self._gw.name, "status": "ok", "msg": "登录成功"})
+        self._confirm_settlement()
         self._gw.after_login()
+
+    def _confirm_settlement(self):
+        """CTP 登录后需确认结算单，否则资金/持仓查询经常为空。"""
+        try:
+            req = tdapi.CThostFtdcSettlementInfoConfirmField()
+            req.BrokerID = self._gw.broker_id
+            req.InvestorID = self._gw.user_id
+            self._api.ReqSettlementInfoConfirm(req, self._gw._next_req_id())
+        except Exception:
+            pass
+
+    def OnRspSettlementInfoConfirm(self, pConfirm, pRspInfo, nRequestID, bIsLast):
+        if pRspInfo and pRspInfo.ErrorID != 0:
+            self._gw.emit({
+                "type": "error",
+                "account": self._gw.name,
+                "msg": f"结算确认失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})",
+            })
 
     # ---- 资金 ----
     def OnRspQryTradingAccount(self, pAccount, pRspInfo, nRequestID, bIsLast):
@@ -331,6 +350,8 @@ class CtpGateway:
         """顺序刷新资金/持仓/委托（CTP 不宜并发查询）。"""
         def _chain():
             import time
+            # 登录瞬间查询经常返回空；等结算确认落地后再查
+            time.sleep(1.2)
             self.query_balance()
             time.sleep(0.8)
             self.query_positions()
@@ -355,7 +376,10 @@ class CtpGateway:
 
     def query_balance(self):
         if self.trader:
-            self.trader.ReqQryTradingAccount(tdapi.CThostFtdcQryTradingAccountField(), self._next_req_id())
+            req = tdapi.CThostFtdcQryTradingAccountField()
+            req.BrokerID = self.broker_id
+            req.InvestorID = self.user_id
+            self.trader.ReqQryTradingAccount(req, self._next_req_id())
 
     def query_positions(self):
         if self.trader:

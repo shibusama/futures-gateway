@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from webview.menu import Menu, MenuAction, MenuSeparator
 
 if TYPE_CHECKING:
-    from desktop_runtime import DesktopRuntime
+    from .runtime import DesktopRuntime
 
 
 def build_menu(runtime: "DesktopRuntime") -> list[Menu]:

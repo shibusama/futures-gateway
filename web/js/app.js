@@ -58,11 +58,12 @@ function renderHeader(conn) {
   if (store.view === "overview") {
     const t = totals();
     const cls = (v) => (v >= 0 ? "up" : "down");
+    const n = (v) => (t.hasBalance ? fmtN(v) : "—");
     document.getElementById("acct-strip").innerHTML = `
-      <div class="acct-item"><span>总权益</span><b class="${cls(t.equity)}">${fmtN(t.equity)}</b></div>
-      <div class="acct-item"><span>可用资金</span><b>${fmtN(t.avail)}</b></div>
-      <div class="acct-item"><span>浮动盈亏</span><b class="${cls(t.float)}">${fmtN(t.float)}</b></div>
-      <div class="acct-item"><span>占用保证金</span><b>${fmtN(t.margin)}</b></div>`;
+      <div class="acct-item"><span>总权益</span><b class="${t.hasBalance ? cls(t.equity) : ""}">${n(t.equity)}</b></div>
+      <div class="acct-item"><span>可用资金</span><b>${n(t.avail)}</b></div>
+      <div class="acct-item"><span>浮动盈亏</span><b class="${t.hasBalance ? cls(t.float) : ""}">${n(t.float)}</b></div>
+      <div class="acct-item"><span>占用保证金</span><b>${n(t.margin)}</b></div>`;
   } else {
     const b = store.balances[store.activeAcct];
     document.getElementById("acct-strip").innerHTML = b

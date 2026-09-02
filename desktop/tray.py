@@ -28,7 +28,7 @@ class TrayController:
     def _icon_path(self) -> str:
         from app_paths import bundle_root
 
-        for base in (bundle_root(), os.path.dirname(os.path.abspath(__file__))):
+        for base in (bundle_root(), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
             path = os.path.join(base, "assets", "icon.ico")
             if os.path.isfile(path):
                 return path

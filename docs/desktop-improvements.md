@@ -11,12 +11,12 @@
 |------|------|----------|
 | 安装包（Setup.exe） | ✅ | `installer/FuturesTerminal.iss` |
 | 绿色版 / zip 分发 | ✅ | `build_desktop_release.bat` |
-| 单实例 | ✅ | `desktop_single.py` |
-| 自动更新框架 | ✅ | `desktop_updater.py` |
+| 单实例 | ✅ | `desktop/single.py` |
+| 自动更新框架 | ✅ | `desktop/updater.py` |
 | 卸载程序 | ✅ | Inno Setup |
 | 用户数据与程序分离 | ✅ | exe 同目录 `config.json`、`flow/` |
-| 网关后台无黑窗口 | ✅ | `desktop_app.py` |
-| 关窗口顺带关网关 | ✅ | `desktop_app.py` |
+| 网关后台无黑窗口 | ✅ | `desktop/app.py` |
+| 关窗口顺带关网关 | ✅ | `desktop/app.py` |
 
 对个人 / 小范围发给朋友：**核心可用**。
 
@@ -34,11 +34,11 @@
 
 ### 2. 首次配置太「程序员向」
 
-- **状态**：✅ 已实现（2026-09-02）— `web/setup.html` + `desktop_setup.py`；首次启动弹向导，支持测试连接；`FuturesTerminal.exe --setup` 可重新配置
+- **状态**：✅ 已实现（2026-09-02）— `web/setup.html` + `desktop/setup.py`；首次启动弹向导，支持测试连接；`FuturesTerminal.exe --setup` 可重新配置
 
 ### 3. 启动失败时用户几乎看不到提示
 
-- **状态**：✅ 已实现（2026-09-02）— `desktop_dialog.py` 弹窗显示原因 + `gateway.log` 摘要
+- **状态**：✅ 已实现（2026-09-02）— `desktop/dialog.py` 弹窗显示原因 + `gateway.log` 摘要
 
 ### 4. 自动更新对朋友可能无效
 
@@ -152,11 +152,12 @@
 
 | 文件 | 作用 |
 |------|------|
-| `desktop_app.py` | 桌面入口、网关子进程、WebView 窗口 |
-| `desktop_updater.py` | GitHub Release 检查与 zip 覆盖更新 |
-| `desktop_single.py` | Windows 单实例 |
-| `app_version.py` | 版本号、Release tag 命名 |
-| `app_paths.py` | 打包路径（exe 旁 vs bundle） |
+| `desktop_app.py` | 根薄入口（转调 `desktop.app.main`） |
+| `desktop/app.py` | 桌面入口实现、网关子进程、WebView 窗口 |
+| `desktop/updater.py` | GitHub Release 检查与 zip 覆盖更新 |
+| `desktop/single.py` | Windows 单实例 |
+| `app_version.py` | 版本号、Release tag 命名（gateway 与 desktop 共用，留根） |
+| `app_paths.py` | 打包路径（exe 旁 vs bundle；gateway 与 desktop 共用，留根） |
 | `FuturesTerminal.spec` | PyInstaller 打包 |
 | `installer/FuturesTerminal.iss` | Inno Setup 安装包 |
 | `build_desktop_release.bat` | exe + zip + Setup 一键构建 |

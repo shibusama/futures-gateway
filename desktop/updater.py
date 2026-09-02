@@ -219,7 +219,7 @@ del "%~f0"
 
 
 def download_and_extract(info: dict) -> str:
-    from desktop_update_progress import open_download_progress
+    from .update_progress import open_download_progress
 
     work = _update_workdir()
     zip_path = os.path.join(work, "pending.zip")
@@ -274,7 +274,7 @@ def check_and_prompt(silent: bool = False) -> bool:
         body += "\n将校验更新包 SHA256。\n"
     if silent:
         return False
-    from desktop_dialog import ask_yes_no, show_message
+    from .dialog import ask_yes_no, show_message
 
     if not ask_yes_no(body, "期界 · 检查更新"):
         return False

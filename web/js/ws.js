@@ -111,6 +111,11 @@ function handle(msg) {
   if (type === "login") {
     store.login[account] = mergeLoginStatus(store.login[account], msg.status);
     emit({ type: "login", account, status: store.login[account], msg: msg.msg });
+    if (msg.status === "ok" && !store.balances[account]) {
+      setTimeout(() => {
+        if (!store.balances[account]) send({ cmd: "query" });
+      }, 1800);
+    }
     return;
   }
   if (type === "balance") {

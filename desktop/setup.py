@@ -6,8 +6,7 @@ import json
 import os
 import threading
 import time
-import urllib.parse
-import urllib.request
+from pathlib import Path
 
 from app_paths import app_root, bundle_root
 from gateway.config import config_path, ensure_config, load_config, normalize, save_config as write_config
@@ -62,7 +61,7 @@ def config_needs_setup(cfg: dict | None = None) -> bool:
 
 def _setup_html_url(*, settings: bool = False) -> str:
     path = os.path.join(bundle_root(), "web", "setup.html")
-    url = urllib.parse.urljoin("file:", urllib.request.pathname2url(os.path.abspath(path)))
+    url = Path(os.path.abspath(path)).resolve().as_uri()
     if settings:
         url += "?mode=settings"
     return url

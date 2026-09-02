@@ -19,12 +19,15 @@ function setStatus(text, kind) {
   el.className = "status" + (kind ? " " + kind : "");
 }
 
-async function waitApi() {
+async function waitApi(timeoutMs = 5000) {
   if (window.pywebview && window.pywebview.api) return window.pywebview.api;
-  await new Promise((resolve) => {
-    window.addEventListener("pywebviewready", resolve, { once: true });
+  return await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    window.addEventListener("pywebviewready", () => {
+      clearTimeout(timer);
+      resolve(window.pywebview ? window.pywebview.api : null);
+    }, { once: true });
   });
-  return window.pywebview.api;
 }
 
 function applyProfileToForm(form, profileId) {
@@ -79,8 +82,11 @@ function syncAccountTypeUI(form) {
   }
 }
 
-function initPageChrome() {
-  if (isSettingsMode()) {
+function initPageChrome(api) {
+  // 配置入口在主窗口打开，桥是 DesktopApi（含 go_back）；首次向导是独立窗，
+  // 桥是 SetupApi（无 go_back）。用桥能力判断，避免依赖易丢失的 URL mode 参数。
+  const hasBack = api ? typeof api.go_back === "function" : isSettingsMode();
+  if (hasBack) {
     $("#btn-back").hidden = false;
     $("#page-title").textContent = "账号配置";
     $("#page-subtitle").textContent = "修改 SimNow 账号或切换前置站点，保存后返回交易界面。";
@@ -88,8 +94,23 @@ function initPageChrome() {
   }
 }
 
+async function goBack() {
+  const api = await waitApi(1500);
+  if (api && typeof api.go_back === "function") {
+    try {
+      await api.go_back();
+      return;
+    } catch (_) {}
+  }
+  if (window.history.length > 1) {
+    window.history.back();
+  } else {
+    location.href = "http://127.0.0.1:8765/";
+  }
+}
+
 async function loadCatalog(api) {
-  if (api.get_front_profiles) {
+  if (api && api.get_front_profiles) {
     catalog = JSON.parse(await api.get_front_profiles());
   } else {
     catalog = {
@@ -105,7 +126,9 @@ async function loadDefaults(form) {
   await loadCatalog(api);
   renderAccountTypes(form);
   renderFrontCards(form);
-  initPageChrome();
+  initPageChrome(api);
+
+  if (!api) return; // 桥暂不可用：保留空表单，按钮仍可手填/测试/保存
 
   const raw = await api.get_defaults();
   const data = JSON.parse(raw);
@@ -116,12 +139,6 @@ async function loadDefaults(form) {
   syncAccountTypeUI(form);
   const pid = data.front_profile_id || catalog.default_simnow_profile_id;
   applyProfileToForm(form, pid);
-
-  $("#btn-back")?.addEventListener("click", async () => {
-    if (api.go_back) {
-      await api.go_back();
-    }
-  });
 }
 
 async function testConnection(form) {
@@ -165,6 +182,7 @@ async function saveConfig(form) {
 document.addEventListener("DOMContentLoaded", () => {
   const form = $("#setup-form");
   loadDefaults(form).catch(() => {});
+  $("#btn-back")?.addEventListener("click", goBack);
   $("#btn-test").addEventListener("click", () => testConnection(form));
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();

@@ -25,7 +25,7 @@ class ProgressController:
         self._ready.wait(timeout=10)
 
     def _run(self, title: str) -> None:
-        from desktop_download_progress import DownloadProgressDialog
+        from .download_progress import DownloadProgressDialog
 
         try:
             dlg = DownloadProgressDialog(title)

@@ -145,7 +145,8 @@ export function totals() {
       margin += b.margin || 0;
     }
   }
-  return { equity, avail, margin, float };
+  const hasBalance = store.accounts.some((acc) => !!store.balances[acc]);
+  return { equity, avail, margin, float, hasBalance };
 }
 
 /** 账户登录状态 → 界面文案（ok / md_ok 均视为已登录） */
