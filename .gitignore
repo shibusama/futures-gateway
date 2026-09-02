@@ -13,6 +13,7 @@ flow/
 # PyInstaller / Inno Setup 构建产物
 dist/
 build/
+.build/
 *.spec.bak
 version_info.txt
 

@@ -26,7 +26,8 @@ def fetch_bars(symbol: str, period: str = "1m") -> list:
         import akshare as ak
         import pandas as pd
     except ImportError:
-        return []
+        # 桌面打包版排除 akshare 以加快构建；K 线仍可用实时 tick 聚合
+        return cached[1] if cached else []
 
     bars = []
     try:

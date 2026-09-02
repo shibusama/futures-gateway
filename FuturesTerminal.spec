@@ -51,12 +51,21 @@ a = Analysis(
         "openctp_ctp.thosttraderapi",
         "openctp_ctp.thostmduserapi",
         "aiohttp",
-        "akshare",
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # 历史 K 线用 akshare（懒加载）；桌面打包不纳入，加快构建、缩小体积
+        "akshare",
+        "pandas",
+        "numpy",
+        "matplotlib",
+        "scipy",
+        "IPython",
+        "notebook",
+        "pytest",
+    ],
     noarchive=False,
     optimize=0,
 )

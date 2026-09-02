@@ -20,6 +20,9 @@ echo Version: !APP_VER!
 echo.
 
 set "BUILD_NO_PAUSE=1"
+echo.
+echo Tip: daily dev builds can use build_desktop_fast.bat ^(skip pip/zip/setup^)
+echo.
 call "%~dp0build_desktop_exe.bat"
 if errorlevel 1 exit /b 1
 
