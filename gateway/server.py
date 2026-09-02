@@ -28,12 +28,31 @@ def build_app(mgr):
     app["mgr"] = mgr
 
     # 静态前端
+    app.router.add_get("/api/app-info", app_info_handler)
     app.router.add_get("/api/bars", bars_handler)
     app.router.add_get("/", index_handler)
     app.router.add_get("/ws", websocket_handler)
     app.router.add_static("/", WEB_DIR, show_index=True)
 
     return app
+
+
+async def app_info_handler(request):
+    info = {
+        "desktop": os.environ.get("FUTURES_DESKTOP") == "1",
+        "version": "dev",
+        "github": "https://github.com/shibusama/futures-gateway",
+        "releases": "https://github.com/shibusama/futures-gateway/releases",
+    }
+    try:
+        from app_version import GITHUB_REPO, __version__
+
+        info["version"] = __version__
+        info["github"] = f"https://github.com/{GITHUB_REPO}"
+        info["releases"] = f"https://github.com/{GITHUB_REPO}/releases"
+    except ImportError:
+        pass
+    return web.json_response(info)
 
 
 async def index_handler(request):
@@ -86,6 +105,9 @@ async def websocket_handler(request):
                         exchange=payload.get("exchange"),
                     )
                     await ws.send_str(json.dumps({"type": "system", "cmd": "cancel_result", "data": result}, ensure_ascii=False))
+                elif cmd == "subscribe":
+                    result = mgr.subscribe_symbols(payload.get("symbols") or [])
+                    await ws.send_str(json.dumps({"type": "system", "cmd": "subscribe_result", "data": result}, ensure_ascii=False))
                 elif cmd == "status":
                     await ws.send_str(json.dumps({"type": "system", "cmd": "status", "data": mgr.status()}, ensure_ascii=False))
             elif msg.type == web.WSMsgType.ERROR:

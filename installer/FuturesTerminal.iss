@@ -14,6 +14,9 @@
 #define MyAppIcon "..\assets\icon.ico"
 #endif
 
+[Languages]
+Name: "chinesesimp"; MessagesFile: "languages\ChineseSimplified.isl"
+
 [Setup]
 AppId={{A7B3C9E1-4F2D-4A8B-9C1E-Desktop-PyWebView}}
 AppName={#MyAppName}

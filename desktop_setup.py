@@ -112,9 +112,10 @@ def test_account_connection(acc_cfg: dict, timeout: float = 28.0) -> dict:
 class SetupApi:
     """PyWebView JS bridge for setup.html."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, close_on_save: bool = True) -> None:
         self.completed = False
         self._window = None
+        self._close_on_save = close_on_save
 
     def get_defaults(self) -> str:
         ensure_config()
@@ -165,7 +166,7 @@ class SetupApi:
         except OSError as exc:
             return json.dumps({"ok": False, "msg": f"保存失败：{exc}"}, ensure_ascii=False)
         self.completed = True
-        if self._window is not None:
+        if self._window is not None and self._close_on_save:
             try:
                 self._window.destroy()
             except Exception:

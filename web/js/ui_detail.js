@@ -4,17 +4,8 @@
 import { store, pxOf, emit, getTick, tickIsLive, acctFloat, positionLivePnl } from "./store.js";
 import { buildCandles, renderChart, updateChartLive } from "./chart.js";
 import { fetchBarHistory } from "./history.js";
+import { getWatchlist, symbolMeta, canCancelOrder, exchangeOf } from "./symbols.js";
 
-const SYMBOLS = [
-  { code: "rb2610", name: "螺纹钢", dec: 0, tick: 1 },
-  { code: "cu2611", name: "沪铜", dec: 0, tick: 10 },
-  { code: "au2612", name: "沪金", dec: 1, tick: 0.02 },
-  { code: "ag2612", name: "沪银", dec: 0, tick: 1 },
-  { code: "sc2609", name: "原油", dec: 1, tick: 0.1 },
-  { code: "IF2609", name: "沪深300", dec: 1, tick: 0.2 },
-  { code: "m2609", name: "豆粕", dec: 0, tick: 1 },
-  { code: "i2609", name: "铁矿石", dec: 1, tick: 0.5 },
-];
 const TIME_FRAMES = [
   { key: "1m", label: "1分" },
   { key: "5m", label: "5分" },
@@ -49,7 +40,11 @@ export function refreshDetailLive() {
 }
 
 function renderWatchlist() {
-  document.getElementById("watchlist").innerHTML = SYMBOLS.map((s) => {
+  const symbols = getWatchlist();
+  if (!symbols.some((s) => s.code === store.sel)) {
+    store.sel = symbols[0]?.code || store.sel;
+  }
+  document.getElementById("watchlist").innerHTML = symbols.map((s) => {
     const t = getTick(s.code);
     const p = t?.price > 0 ? t.price : 0;
     const pre = t?.pre_close;
@@ -61,10 +56,15 @@ function renderWatchlist() {
       pcCls = cls(pc);
     }
     const stale = p && !tickIsLive(s.code) ? " stale" : "";
-    return `<button class="wl-row${store.sel === s.code ? " active" : ""}${stale}" data-code="${s.code}">
-      <span class="wl-name">${s.name}<small>${s.code}</small></span>
-      <span class="right tab">${p ? fmt(p, s.dec) : "—"}</span>
-      <span class="right tab ${pcCls}">${pcText}</span></button>`;
+    const canRemove = symbols.length > 1;
+    return `<div class="wl-item${store.sel === s.code ? " active" : ""}${stale}">
+      <button type="button" class="wl-row" data-code="${s.code}">
+        <span class="wl-name">${s.name}<small>${s.code}</small></span>
+        <span class="right tab">${p ? fmt(p, s.dec) : "—"}</span>
+        <span class="right tab ${pcCls}">${pcText}</span>
+      </button>
+      ${canRemove ? `<button type="button" class="wl-remove" data-remove="${s.code}" title="移除">×</button>` : ""}
+    </div>`;
   }).join("");
 }
 
@@ -135,7 +135,7 @@ function stateAccount() {
 }
 
 function currentSymbol() {
-  return SYMBOLS.find((s) => s.code === store.sel) || SYMBOLS[0];
+  return symbolMeta(store.sel) || getWatchlist()[0] || symbolMeta("rb2610");
 }
 
 function accountStats(account) {
@@ -204,16 +204,21 @@ function renderTables(account) {
   } else {
     const ords = store.orders[account] || [];
     if (!ords.length) { el.innerHTML = '<div class="empty">暂无委托</div>'; return; }
-    let html = "<table><thead><tr><th>时间</th><th>合约</th><th>方向</th><th>开平</th><th>手数</th><th>价格</th><th>成交</th><th>状态</th></tr></thead><tbody>";
+    let html = "<table><thead><tr><th>时间</th><th>合约</th><th>方向</th><th>开平</th><th>手数</th><th>价格</th><th>成交</th><th>状态</th><th></th></tr></thead><tbody>";
     ords.forEach((o) => {
       const dir = o.direction === "0" ? "买" : "卖";
       const off = o.offset === "0" ? "开" : "平";
       const stCls = o.status === "0" ? "b-ok" : o.status === "3" ? "b-wait" : "b-off";
+      const cancelBtn = canCancelOrder(o)
+        ? `<button type="button" class="btn-cancel" data-cancel-order="${o.order_sys_id || ""}"
+            data-symbol="${o.symbol}" data-exchange="${o.exchange || exchangeOf(o.symbol)}">撤单</button>`
+        : "";
       html += `<tr><td>${o.time || "—"}</td><td>${o.symbol}</td>
         <td class="${dir === "买" ? "up" : "down"}">${dir}</td><td>${off}</td>
         <td>${o.volume_total}</td><td class="tab">${fmt(o.limit_price, 0)}</td>
         <td>${o.volume_traded || 0}</td>
-        <td><span class="badge ${stCls}">${orderStatus(o)}</span></td></tr>`;
+        <td><span class="badge ${stCls}">${orderStatus(o)}</span></td>
+        <td>${cancelBtn}</td></tr>`;
     });
     el.innerHTML = html + "</tbody></table>";
   }

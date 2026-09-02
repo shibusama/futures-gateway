@@ -2,3 +2,5 @@ openctp-ctp
 aiohttp
 akshare
 pywebview
+pystray
+pillow

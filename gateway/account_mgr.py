@@ -128,6 +128,24 @@ class AccountManager:
             return {"ok": False, "msg": f"未知账户：{account}"}
         return gw.cancel_order(order_sys_id, symbol, exchange)
 
+    def subscribe_symbols(self, symbols: list):
+        """追加订阅合约（合并到各账号已有订阅列表）。"""
+        if not symbols:
+            return {"ok": False, "msg": "未指定合约"}
+        sym_set = set()
+        for gw in self.gateways.values():
+            sym_set.update(gw.md_symbols)
+        for s in symbols:
+            if s:
+                sym_set.add(str(s).strip())
+        merged = sorted(sym_set)
+        for gw in self.gateways.values():
+            try:
+                gw.subscribe(merged)
+            except Exception:
+                pass
+        return {"ok": True, "symbols": merged}
+
     def query_all(self):
         """收到查询请求时，让所有账号重新刷新资金/持仓。"""
         for name, gw in self.gateways.items():

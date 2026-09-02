@@ -20,6 +20,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+"%PY%" scripts\generate_icon.py
+"%PY%" scripts\generate_version_info.py
+
 "%PY%" -m PyInstaller --noconfirm FuturesTerminal.spec
 if errorlevel 1 (
     echo [ERROR] PyInstaller build failed

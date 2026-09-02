@@ -12,7 +12,10 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
+import urllib.parse
+import urllib.request
 
 from app_paths import app_root, bundle_root, setup_runtime_env
 
@@ -53,13 +56,21 @@ def _gateway_cmd() -> list[str]:
     return [sys.executable, "-m", "gateway.main"]
 
 
+def _loading_url() -> str:
+    path = os.path.join(bundle_root(), "web", "loading.html")
+    return urllib.parse.urljoin("file:", urllib.request.pathname2url(os.path.abspath(path)))
+
+
 def start_gateway() -> subprocess.Popen[bytes]:
+    from desktop_logging import log_path, rotate_if_needed
+
+    rotate_if_needed(log_path())
     env = os.environ.copy()
     env["FUTURES_DESKTOP"] = "1"
     env["FUTURES_APP_ROOT"] = app_root()
     env["FUTURES_BUNDLE_ROOT"] = bundle_root()
-    log_path = os.path.join(app_root(), LOG_NAME)
-    log_file = open(log_path, "a", encoding="utf-8")
+    log_file_path = log_path()
+    log_file = open(log_file_path, "a", encoding="utf-8")
     log_file.write(f"\n--- gateway start {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
     log_file.flush()
     kwargs: dict = {
@@ -73,25 +84,126 @@ def start_gateway() -> subprocess.Popen[bytes]:
     return subprocess.Popen(_gateway_cmd(), **kwargs)
 
 
-def stop_gateway(proc: subprocess.Popen[bytes]) -> None:
-    if proc.poll() is not None:
-        return
-    proc.terminate()
+def _find_listener_pid(port: int) -> int | None:
+    from gateway.main import _find_listener_pid as find_pid
+
+    return find_pid(port)
+
+
+def _kill_pid(pid: int) -> bool:
+    from gateway.main import _kill_pid as kill_pid
+
+    return kill_pid(pid)
+
+
+def _process_command_line(pid: int) -> str:
+    if pid <= 0:
+        return ""
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return (result.stdout or "").strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
     try:
-        proc.wait(timeout=8)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=3)
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            return f.read().decode("utf-8", errors="replace").replace("\x00", " ")
+    except OSError:
+        return ""
+
+
+def _is_our_gateway(pid: int) -> bool:
+    cmd = _process_command_line(pid).lower()
+    return "gateway.main" in cmd or "--gateway-internal" in cmd
+
+
+def stop_gateway(proc: subprocess.Popen[bytes], *, port: int | None = None) -> None:
+    """Stop gateway subprocess; on Windows CTP may ignore terminate(), so force-kill."""
+    pid = proc.pid
+    if proc.poll() is None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F", "/T"],
+                capture_output=True,
+                text=True,
+            )
+        else:
+            proc.terminate()
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=3)
+
+    if port is not None:
+        listener = _find_listener_pid(port)
+        if listener and listener in {pid, proc.pid}:
+            _kill_pid(listener)
 
 
 def _log_path() -> str:
-    return os.path.join(app_root(), LOG_NAME)
+    from desktop_logging import log_path
+
+    return log_path()
 
 
 def _show_startup_failure(reason: str) -> None:
     from desktop_dialog import format_startup_failure, show_message
 
     show_message(format_startup_failure(reason, _log_path()), "期界 · 启动失败", error=True)
+
+
+def _resolve_port_conflict(host: str, port: int) -> str:
+    from desktop_dialog import ask_yes_no, show_message
+
+    listener = _find_listener_pid(port)
+    if listener is None:
+        show_message(
+            f"端口 {port} 已被占用，但无法识别占用进程。\n\n"
+            "请关闭占用该端口的程序，或在 config.json 中修改 port 后重试。",
+            "期界 · 端口占用",
+            error=True,
+        )
+        return "abort"
+
+    if not _is_our_gateway(listener):
+        show_message(
+            f"端口 {port} 已被其他程序占用（进程 {listener}）。\n\n"
+            f"命令行：{_process_command_line(listener) or '未知'}\n\n"
+            "期界无法启动。请结束该进程，或修改 config.json 中的 port。",
+            "期界 · 端口占用",
+            error=True,
+        )
+        return "abort"
+
+    restart = ask_yes_no(
+        f"检测到本机已有期界网关在运行（端口 {port}，进程 {listener}）。\n\n"
+        "选择「是」：关闭旧网关并重新启动（推荐）。\n"
+        "选择「否」：连接现有网关（点 × 只会隐藏到托盘；须在托盘右键「退出」才会关网关）。",
+        "期界 · 端口占用",
+    )
+    if restart:
+        _kill_pid(listener)
+        time.sleep(1.5)
+        if port_open(host, port):
+            show_message(
+                f"旧网关未能完全关闭，端口 {port} 仍被占用。\n\n请手动结束进程 {listener} 后重试。",
+                "期界 · 端口占用",
+                error=True,
+            )
+            return "abort"
+        return "spawn"
+    return "attach"
 
 
 def _ensure_account_config(force_setup: bool = False) -> bool:
@@ -142,42 +254,84 @@ def run_desktop() -> int:
 
     import webview
 
+    from desktop_api import DesktopApi
+    from desktop_logging import rotate_if_needed
+    from desktop_menu import build_menu
+    from desktop_runtime import DesktopRuntime
+    from desktop_tray import TrayController
     from gateway.config import load_config
 
+    rotate_if_needed(_log_path())
+
+    runtime = DesktopRuntime()
     config = load_config()
     bind_host = config.get("host", "127.0.0.1")
     port = int(config.get("port", 8765))
     host = _connect_host(bind_host)
-    url = f"http://{host}:{port}"
+    main_url = f"http://{host}:{port}"
+    runtime.host = host
+    runtime.port = port
 
-    gateway_proc: subprocess.Popen[bytes] | None = None
-    spawned = False
-
-    if not port_open(host, port):
-        gateway_proc = start_gateway()
-        spawned = True
-        if not wait_for_port(host, port):
-            code = gateway_proc.poll()
-            if code is not None:
-                _show_startup_failure(f"网关进程已退出（退出码 {code}）。")
-            else:
-                _show_startup_failure("等待网关启动超时。")
-            stop_gateway(gateway_proc)
+    if port_open(host, port):
+        action = _resolve_port_conflict(host, port)
+        if action == "abort":
             return 1
+        if action == "spawn":
+            runtime.gateway_proc = start_gateway()
+            runtime.spawned = True
+    else:
+        runtime.gateway_proc = start_gateway()
+        runtime.spawned = True
 
+    api = DesktopApi()
     window = webview.create_window(
         "期界 · 期货交易终端",
-        url,
+        _loading_url(),
         width=1280,
         height=820,
         min_size=(960, 640),
+        js_api=api,
+        confirm_close=False,
     )
+    api.bind(window, main_url, quit_callback=runtime.request_quit)
+    runtime.window = window
+    runtime.api = api
+    window.events.closing += runtime.on_closing
+
+    runtime.tray = TrayController(on_show=runtime.show_window, on_quit=runtime.request_quit)
+    runtime.tray.start()
+
+    def boot_main_ui() -> None:
+        if runtime.spawned:
+            if not wait_for_port(host, port):
+                code = runtime.gateway_proc.poll() if runtime.gateway_proc else None
+                if code is not None:
+                    _show_startup_failure(f"网关进程已退出（退出码 {code}）。")
+                else:
+                    _show_startup_failure("等待网关启动超时。")
+                if runtime.gateway_proc is not None:
+                    stop_gateway(runtime.gateway_proc, port=port)
+                runtime.request_quit()
+                return
+        try:
+            window.load_url(main_url)
+        except Exception:
+            _show_startup_failure("无法打开交易界面，请检查网关是否正常运行。")
+            runtime.request_quit()
+
+    threading.Thread(target=boot_main_ui, daemon=True).start()
 
     try:
-        webview.start()
+        webview.start(menu=build_menu(runtime))
     finally:
-        if spawned and gateway_proc is not None:
-            stop_gateway(gateway_proc)
+        if runtime.tray is not None:
+            runtime.tray.stop()
+        if runtime.spawned and runtime.gateway_proc is not None:
+            stop_gateway(runtime.gateway_proc, port=port)
+        elif runtime.quitting:
+            listener = _find_listener_pid(port)
+            if listener and _is_our_gateway(listener):
+                _kill_pid(listener)
 
     return 0
 

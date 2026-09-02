@@ -3,12 +3,15 @@
  * 连接 ws://127.0.0.1:8765/ws（与网关 config.json host/port 对应；页面本身由网关静态服务托管）。
  */
 import { store, emit, mergeLoginStatus, applyTick, seedTick, loadTicksFromStorage } from "./store.js";
+import { getWatchlistCodes } from "./symbols.js";
 
 loadTicksFromStorage();
 
 let ws = null;
 let retryTimer = null;
 let reconnectDelay = 3000;
+const RECONNECT_BASE = 3000;
+const RECONNECT_MAX = 15000;
 
 export function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -24,10 +27,15 @@ export function connect() {
   }
 
   ws.onopen = () => {
+    const reconnected = store.wasConnected;
     store.conn = "open";
-    emit({ type: "conn", status: "open" });
+    store.reconnectAttempt = 0;
+    reconnectDelay = RECONNECT_BASE;
+    store.wasConnected = true;
+    emit({ type: "conn", status: "open", reconnected });
     send({ cmd: "status" });
     send({ cmd: "query" });
+    send({ cmd: "subscribe", symbols: getWatchlistCodes() });
   };
 
   ws.onmessage = (e) => {
@@ -37,8 +45,10 @@ export function connect() {
   };
 
   ws.onclose = () => {
+    const hadConnection = store.wasConnected;
     store.conn = "closed";
-    emit({ type: "conn", status: "closed" });
+    store.reconnectAttempt += 1;
+    emit({ type: "conn", status: "closed", attempt: store.reconnectAttempt, hadConnection });
     scheduleReconnect();
   };
 
@@ -48,6 +58,7 @@ export function connect() {
 function scheduleReconnect() {
   clearTimeout(retryTimer);
   retryTimer = setTimeout(connect, reconnectDelay);
+  reconnectDelay = Math.min(RECONNECT_MAX, Math.round(reconnectDelay * 1.4));
 }
 
 /** 处理网关推来的各类事件，写入 store 并广播渲染 */
@@ -59,6 +70,19 @@ function handle(msg) {
     if (msg.cmd === "query_ok") {
       for (const acc of store.accounts) store.positions[acc] = [];
       emit({ type: "system", data: msg });
+      return;
+    }
+    if (msg.cmd === "cancel_result" || msg.cmd === "order_result") {
+      const data = msg.data || {};
+      emit({
+        type: "toast",
+        msg: data.ok ? (data.msg || "操作已提交") : (data.msg || "操作失败"),
+      });
+      return;
+    }
+    if (msg.cmd === "subscribe_result") {
+      const data = msg.data || {};
+      if (!data.ok && data.msg) emit({ type: "toast", msg: data.msg });
       return;
     }
     if (msg.cmd === "hello" || msg.cmd === "status") {
@@ -145,6 +169,11 @@ export function sendOrder({ account, symbol, direction, offset, price, volume })
 /** 撤单指令 → 网关 */
 export function sendCancel({ account, order_sys_id, symbol, exchange }) {
   send({ cmd: "cancel", account, order_sys_id, symbol, exchange });
+}
+
+/** 订阅自选合约行情 */
+export function sendSubscribe(symbols) {
+  send({ cmd: "subscribe", symbols });
 }
 
 /** 请求网关刷新所有账号数据 */

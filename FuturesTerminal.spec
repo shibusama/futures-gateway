@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(SPECPATH)
 
 ICON = ROOT / "assets" / "icon.ico"
+VERSION = ROOT / "version_info.txt"
 
 a = Analysis(
     [str(ROOT / "desktop_app.py")],
@@ -14,6 +15,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "web"), "web"),
+        (str(ROOT / "assets"), "assets"),
         (str(ROOT / "config.json.example"), "."),
     ],
     hiddenimports=[
@@ -21,8 +23,16 @@ a = Analysis(
         "app_version",
         "desktop_dialog",
         "desktop_setup",
+        "desktop_api",
+        "desktop_runtime",
+        "desktop_menu",
+        "desktop_tray",
+        "desktop_logging",
         "desktop_updater",
         "desktop_single",
+        "pystray",
+        "PIL",
+        "PIL.Image",
         "webview",
         "gateway",
         "gateway.main",
@@ -64,6 +74,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(ICON) if ICON.is_file() else None,
+    version=str(VERSION) if VERSION.is_file() else None,
 )
 
 coll = COLLECT(

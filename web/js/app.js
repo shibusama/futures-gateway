@@ -2,13 +2,15 @@
  * app.js — 应用入口：装配 store / ws / ui 模块，绑定事件，响应网关推送。
  */
 import { store, totals, emit } from "./store.js";
-import { connect, sendOrder } from "./ws.js";
+import { connect, sendOrder, sendCancel, sendSubscribe } from "./ws.js";
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
 import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./ui_detail.js";
 import { bindChartHover } from "./chart.js";
 import { initOfflineDemo, isOfflineMode } from "./offline.js";
 import { initTheme, toggleTheme } from "./theme.js";
+import { bindAboutDialog } from "./about.js";
+import { addWatchlistSymbol, removeWatchlistSymbol } from "./symbols.js";
 
 /* ---------- 视图切换 ---------- */
 function showView(v) {
@@ -30,10 +32,27 @@ function render() {
 function renderHeader(conn) {
   const badge = document.getElementById("conn-badge");
   badge.textContent = conn === "open" ? "CTP 已连接"
-    : conn === "connecting" ? "连接中"
+    : conn === "connecting" ? (store.reconnectAttempt ? `重连中 (${store.reconnectAttempt})` : "连接中")
     : conn === "offline" ? "UI 对比"
-    : "未连接";
-  badge.className = "demo-badge " + (conn === "open" ? " ok" : conn === "connecting" ? " wait" : conn === "offline" ? " wait" : "");
+    : store.reconnectAttempt ? `已断开 · 重连 ${store.reconnectAttempt}` : "未连接";
+  badge.className = "demo-badge " + (conn === "open" ? " ok" : conn === "connecting" ? " wait" : conn === "offline" ? " wait" : " err");
+
+  const banner = document.getElementById("conn-banner");
+  if (banner) {
+    if (conn === "open") {
+      banner.hidden = true;
+      banner.textContent = "";
+    } else if (conn === "connecting" && store.wasConnected) {
+      banner.hidden = false;
+      banner.textContent = `与网关断开，正在重连…（第 ${store.reconnectAttempt || 1} 次）`;
+    } else if (conn === "closed" && store.wasConnected) {
+      banner.hidden = false;
+      banner.textContent = `与网关断开，正在自动重连…（第 ${store.reconnectAttempt || 1} 次）`;
+    } else {
+      banner.hidden = conn !== "closed";
+      banner.textContent = conn === "closed" ? "未连接到本地网关，请确认 FuturesTerminal 或 gateway 已启动" : "";
+    }
+  }
   document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
   // 顶部聚合条
   if (store.view === "overview") {
@@ -77,16 +96,44 @@ function bindEvents() {
     if (btn) { store.activeAcct = btn.getAttribute("data-view"); showView("detail"); }
   });
 
-  // 行情列表选合约
+  // 行情列表选合约 / 移除
   document.getElementById("watchlist").addEventListener("click", (e) => {
+    const removeBtn = e.target.closest("[data-remove]");
+    if (removeBtn) {
+      e.stopPropagation();
+      const code = removeBtn.getAttribute("data-remove");
+      const res = removeWatchlistSymbol(code);
+      if (!res.ok) { toast(res.msg); return; }
+      if (store.sel.toLowerCase() === code.toLowerCase()) {
+        store.sel = res.codes[0];
+      }
+      if (store.conn === "open") sendSubscribe(res.codes);
+      toast(`已移除 ${code}`);
+      render();
+      return;
+    }
     const b = e.target.closest(".wl-row");
     if (!b) return;
     const code = b.getAttribute("data-code");
     if (code === store.sel) return;
-    // 立即切换高亮，不等整页重绘
-    document.querySelectorAll("#watchlist .wl-row.active").forEach((r) => r.classList.remove("active"));
-    b.classList.add("active");
+    document.querySelectorAll("#watchlist .wl-item.active").forEach((r) => r.classList.remove("active"));
+    b.closest(".wl-item")?.classList.add("active");
     selectSymbol(code);
+  });
+
+  document.getElementById("wl-add-btn").addEventListener("click", () => {
+    const input = document.getElementById("wl-add-input");
+    const raw = input.value.trim();
+    if (!raw) { toast("请输入合约代码"); return; }
+    const res = addWatchlistSymbol(raw);
+    if (!res.ok) { toast(res.msg); return; }
+    input.value = "";
+    if (store.conn === "open") sendSubscribe(res.codes);
+    toast(res.msg);
+    render();
+  });
+  document.getElementById("wl-add-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("wl-add-btn").click();
   });
 
   // 周期切换
@@ -135,6 +182,21 @@ function bindEvents() {
   document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
   document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
 
+  // 撤单
+  document.getElementById("tables").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-cancel-order]");
+    if (!btn) return;
+    const account = store.activeAcct;
+    if (!account) { toast("请先选择账户"); return; }
+    if (store.conn !== "open") { toast("网关未连接"); return; }
+    const orderSysId = btn.getAttribute("data-cancel-order");
+    const symbol = btn.getAttribute("data-symbol");
+    const exchange = btn.getAttribute("data-exchange");
+    if (!orderSysId) { toast("缺少报单编号，无法撤单"); return; }
+    sendCancel({ account, order_sys_id: orderSysId, symbol, exchange });
+    toast(`撤单已发送：${symbol}`);
+  });
+
   // K线悬停（Lightweight Charts 内置十字光标）
   bindChartHover(document.getElementById("chart-container"), () => {
     if (store.view === "detail") rerenderChart();
@@ -164,7 +226,11 @@ function onTickFrame() {
 }
 window.addEventListener("ftd-event", (e) => {
   const d = e.detail;
-  if (d.type === "conn") { renderHeader(d.status); }
+  if (d.type === "conn") {
+    renderHeader(d.status);
+    if (d.status === "open" && d.reconnected) toast("已重新连接到网关");
+    else if (d.status === "closed" && d.hadConnection) toast("与网关断开，正在自动重连…");
+  }
   else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position" || d.type === "history") {
     render();
   } else if (d.type === "tick") {
@@ -180,6 +246,7 @@ window.addEventListener("ftd-event", (e) => {
 
 /* ---------- 启动 ---------- */
 bindEvents();
+bindAboutDialog();
 initTheme();
 
 if (isOfflineMode()) {

@@ -14,6 +14,7 @@ flow/
 dist/
 build/
 *.spec.bak
+version_info.txt
 
 # 日志与临时文件
 gateway.log

@@ -270,6 +270,7 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
             "order_ref": getattr(pOrder, "OrderRef", ""),
             "order_sys_id": getattr(pOrder, "OrderSysID", ""),
             "symbol": pOrder.InstrumentID,
+            "exchange": getattr(pOrder, "ExchangeID", "") or CtpGateway._exchange_of(pOrder.InstrumentID),
             "direction": getattr(pOrder, "Direction", ""),
             "offset": getattr(pOrder, "CombOffsetFlag", "")[:1] if getattr(pOrder, "CombOffsetFlag", "") else "",
             "limit_price": pOrder.LimitPrice,

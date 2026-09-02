@@ -25,6 +25,9 @@ export const store = {
   barHistory: {},           // symbol_tf -> [{t,o,h,l,c,v}]
   lastShown: [],            // toast 提示防抖
   sumTab: "symbol",         // overview 汇总区：symbol | account
+  tab: "pos",               // detail 底部：pos | ord
+  reconnectAttempt: 0,      // WebSocket 重连次数（供 UI 展示）
+  wasConnected: false,      // 是否曾成功连上过
 };
 
 const TICK_STORAGE_KEY = "fg_last_ticks";
