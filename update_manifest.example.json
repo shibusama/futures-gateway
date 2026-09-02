@@ -1,0 +1,7 @@
+{
+  "version": "1.0.1",
+  "tag": "desktop-v1.0.1",
+  "url": "https://example.com/FuturesTerminal-win64.zip",
+  "sha256": "在此填写 zip 的 SHA256 十六进制摘要",
+  "notes": "更新说明（可选）"
+}

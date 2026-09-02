@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Check GitHub Releases and apply full-folder updates for PyWebView desktop."""
+"""Check public manifest / GitHub Releases and apply verified desktop updates."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -14,7 +15,13 @@ import urllib.request
 import zipfile
 
 from app_paths import app_root, is_frozen
-from app_version import GITHUB_REPO, RELEASE_TAG_PREFIX, UPDATE_ASSET_NAME, __version__
+from app_version import (
+    GITHUB_REPO,
+    RELEASE_TAG_PREFIX,
+    UPDATE_ASSET_NAME,
+    UPDATE_MANIFEST_URL,
+    __version__,
+)
 
 
 def parse_version(text: str) -> tuple[int, ...]:
@@ -28,23 +35,23 @@ def current_version() -> tuple[int, ...]:
     return parse_version(__version__)
 
 
-def _api_url() -> str:
-    return f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-
-
-def _fetch_latest_release() -> dict | None:
+def _fetch_json(url: str, timeout: float = 12.0) -> dict | None:
     req = urllib.request.Request(
-        _api_url(),
+        url,
         headers={
-            "Accept": "application/vnd.github+json",
+            "Accept": "application/json",
             "User-Agent": "FuturesTerminal-Updater",
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
         return None
+
+
+def _api_url() -> str:
+    return f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 
 def _pick_asset(release: dict) -> dict | None:
@@ -54,13 +61,25 @@ def _pick_asset(release: dict) -> dict | None:
     return None
 
 
-def find_update() -> dict | None:
-    """Return {version, tag, url, notes} if a newer release exists."""
-    if not is_frozen():
+def _info_from_manifest(data: dict) -> dict | None:
+    version = (data.get("version") or "").strip()
+    url = (data.get("url") or "").strip()
+    if not version or not url:
         return None
-    release = _fetch_latest_release()
-    if not release:
+    remote_ver = parse_version(version)
+    if remote_ver <= current_version():
         return None
+    return {
+        "version": ".".join(str(x) for x in remote_ver),
+        "tag": data.get("tag") or f"{RELEASE_TAG_PREFIX}{version}",
+        "url": url,
+        "sha256": (data.get("sha256") or "").strip().lower(),
+        "notes": (data.get("notes") or "").strip(),
+        "source": "manifest",
+    }
+
+
+def _info_from_github(release: dict) -> dict | None:
     tag = release.get("tag_name") or ""
     if RELEASE_TAG_PREFIX and not tag.startswith(RELEASE_TAG_PREFIX):
         return None
@@ -75,25 +94,51 @@ def find_update() -> dict | None:
         "version": ver_label,
         "tag": tag,
         "url": asset["browser_download_url"],
+        "sha256": "",
         "notes": (release.get("body") or "").strip(),
+        "source": "github",
     }
 
 
-def _message_box(text: str, title: str, yes_no: bool = True) -> bool:
-    if os.name != "nt":
-        print(title, text)
-        return False
-    import ctypes
+def find_update() -> dict | None:
+    """Return update info if a newer release exists."""
+    if not is_frozen():
+        return None
 
-    flags = 0x00000024 if yes_no else 0x00000040  # MB_YESNO|MB_ICONQUESTION or MB_ICONINFORMATION
-    rc = ctypes.windll.user32.MessageBoxW(None, text, title, flags)
-    return rc == 6  # IDYES
+    manifest_url = (UPDATE_MANIFEST_URL or os.environ.get("FUTURES_UPDATE_MANIFEST_URL") or "").strip()
+    if manifest_url:
+        manifest = _fetch_json(manifest_url)
+        if manifest:
+            info = _info_from_manifest(manifest)
+            if info:
+                return info
+
+    release = _fetch_json(_api_url())
+    if not release:
+        return None
+    return _info_from_github(release)
 
 
 def _download(url: str, dest: str) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "FuturesTerminal-Updater"})
-    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as out:
+    with urllib.request.urlopen(req, timeout=180) as resp, open(dest, "wb") as out:
         shutil.copyfileobj(resp, out)
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest().lower()
+
+
+def _verify_download(path: str, expected: str) -> None:
+    if not expected:
+        return
+    actual = _sha256_file(path)
+    if actual != expected.lower():
+        raise OSError(f"更新包校验失败（SHA256 不匹配）。\n期望：{expected}\n实际：{actual}")
 
 
 def _apply_update(staging_dir: str) -> None:
@@ -130,10 +175,11 @@ def run_update(info: dict) -> None:
     os.makedirs(staging, exist_ok=True)
 
     _download(info["url"], zip_path)
+    _verify_download(zip_path, info.get("sha256") or "")
+
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(staging)
 
-    # zip may contain a top-level FuturesTerminal/ folder
     entries = os.listdir(staging)
     if len(entries) == 1:
         only = os.path.join(staging, entries[0])
@@ -144,9 +190,7 @@ def run_update(info: dict) -> None:
 
 
 def check_and_prompt(silent: bool = False) -> bool:
-    """
-    If update available, prompt user. Returns True when app should exit (update scheduled).
-    """
+    """If update available, prompt user. Returns True when app should exit."""
     if "--no-update-check" in sys.argv:
         return False
     info = find_update()
@@ -155,22 +199,29 @@ def check_and_prompt(silent: bool = False) -> bool:
     notes = info["notes"]
     if len(notes) > 280:
         notes = notes[:280] + "…"
+    source_hint = ""
+    if info.get("source") == "manifest":
+        source_hint = "\n（更新源：公开清单）"
     body = (
         f"发现新版本 v{info['version']}（当前 v{__version__}）。\n\n"
-        f"是否现在下载并安装？安装时会自动重启程序。\n"
+        f"是否现在下载并安装？安装时会自动重启程序。{source_hint}\n"
     )
     if notes:
         body += f"\n更新说明：\n{notes}\n"
+    if info.get("sha256"):
+        body += "\n将校验更新包 SHA256。\n"
     if silent:
         return False
-    if not _message_box(body, "期界 · 检查更新", yes_no=True):
+    from desktop_dialog import ask_yes_no, show_message
+
+    if not ask_yes_no(body, "期界 · 检查更新"):
         return False
     try:
         run_update(info)
-        _message_box("正在更新，程序即将退出并自动重启。", "期界 · 更新", yes_no=False)
+        show_message("正在更新，程序即将退出并自动重启。", "期界 · 更新")
         return True
     except OSError as exc:
-        _message_box(f"更新失败：{exc}", "期界 · 更新", yes_no=False)
+        show_message(f"更新失败：{exc}", "期界 · 更新", error=True)
         return False
 
 
@@ -180,5 +231,8 @@ def check_only() -> int:
         print(f"已是最新版本 v{__version__}")
         return 0
     print(f"有新版本 v{info['version']}（当前 v{__version__}）")
+    print(f"来源：{info.get('source', 'unknown')}")
     print(f"下载：{info['url']}")
+    if info.get("sha256"):
+        print(f"SHA256：{info['sha256']}")
     return 1

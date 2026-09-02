@@ -37,6 +37,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo.
+echo SHA256 for update manifest:
+certutil -hashfile "%ZIP%" SHA256 | findstr /v "hash"
+echo Paste into update_manifest.json when hosting updates publicly.
+echo.
+
 set "ISCC="
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if exist "C:\Program Files\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 6\ISCC.exe"

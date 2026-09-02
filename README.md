@@ -69,14 +69,18 @@
 2. 在 **exe 同目录** 放置 `config.json`（从 `config.json.example` 复制）  
 3. 双击 `FuturesTerminal.exe`
 
-**开发调试：** `run_desktop.bat`（不打包，直接 PyWebView）
+**开发调试：** `run_desktop.bat`（不打包，直接 PyWebView）  
+**重新配置账号：** `FuturesTerminal.exe --setup` 或开发时 `python desktop_app.py --setup`
 
 | 能力 | 说明 |
 |------|------|
 | UI | 与浏览器 **100% 相同**（同一套 `web/`，但打包进 exe，非线上网页） |
+| 首次配置 | 未填写 SimNow 账号时自动弹出配置向导（可测试连接） |
+| 启动失败提示 | 网关启动失败时弹窗，并显示 `gateway.log` 摘要 |
 | 网关 | 启动时自动拉起，关闭窗口时结束**本次**启动的网关 |
 | 单实例 | 已运行时会提示，不会开多个窗口 |
-| 检查更新 | 启动时询问；或运行 `FuturesTerminal.exe --check-update` |
+| 检查更新 | 启动时询问；从 GitHub Release 拉取 `FuturesTerminal-win64.zip`（仓库已公开） |
+| 应用图标 | exe / 安装包 / 任务栏使用 `assets/icon.ico` |
 | 日志 | exe 同目录 `gateway.log` |
 
 #### 重要：改 web 后朋友桌面端会不会变？
@@ -113,7 +117,7 @@ git push origin master
 git push origin desktop-v1.0.1
 ```
 
-- [ ] **6. 手动发布 GitHub Release** — 本地打包完成后上传（不用 CI）：
+- [ ] **6. 手动发布 GitHub Release** — 本地打包完成后上传（朋友端会自动从 Release 检查更新）：
 
 ```bash
 gh release create desktop-v1.0.1 \
@@ -122,6 +126,8 @@ gh release create desktop-v1.0.1 \
   --title "Desktop v1.0.1" \
   --notes "更新说明"
 ```
+
+- [ ] **6b.（可选）自建更新源** — 若不用 GitHub Release，可将 zip 放到 CDN/网盘，用 `update_manifest.example.json` + `UPDATE_MANIFEST_URL`（含 SHA256 校验）。
 
 - [ ] **7. 通知用户**（任选其一）：
   - **自动更新**：用户重启程序，若 Release 版本高于本地版本会提示下载（需能访问 GitHub）

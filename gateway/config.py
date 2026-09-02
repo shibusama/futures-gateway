@@ -62,6 +62,16 @@ def load_config():
     return normalize(cfg)
 
 
+def save_config(cfg: dict) -> None:
+    """Write config.json next to the app (exe dir when packaged)."""
+    path = config_path()
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(normalize(cfg), f, ensure_ascii=False, indent=2)
+
+
 def normalize(cfg):
     """补齐缺失字段，避免用户手改配置时漏一项导致崩溃。"""
     cfg.setdefault("host", "127.0.0.1")

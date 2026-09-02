@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH)
 
+ICON = ROOT / "assets" / "icon.ico"
+
 a = Analysis(
     [str(ROOT / "desktop_app.py")],
     pathex=[str(ROOT)],
@@ -17,6 +19,8 @@ a = Analysis(
     hiddenimports=[
         "app_paths",
         "app_version",
+        "desktop_dialog",
+        "desktop_setup",
         "desktop_updater",
         "desktop_single",
         "webview",
@@ -59,6 +63,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(ICON) if ICON.is_file() else None,
 )
 
 coll = COLLECT(

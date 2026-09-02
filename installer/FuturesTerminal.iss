@@ -10,6 +10,10 @@
 #define MyAppPublisher "Futures Gateway"
 #define MyAppExeName "FuturesTerminal.exe"
 
+#ifexist "..\assets\icon.ico"
+#define MyAppIcon "..\assets\icon.ico"
+#endif
+
 [Setup]
 AppId={{A7B3C9E1-4F2D-4A8B-9C1E-Desktop-PyWebView}}
 AppName={#MyAppName}
@@ -25,6 +29,10 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
+#ifdef MyAppIcon
+SetupIconFile={#MyAppIcon}
+UninstallDisplayIcon={app}\{#MyAppExeName}
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标:"; Flags: unchecked
@@ -37,6 +45,7 @@ Source: "..\config.json.example"; DestDir: "{app}"; DestName: "config.json"; Fla
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\账号配置"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup"
 Name: "{group}\检查更新"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--check-update"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>期界 · 首次配置</title>
+<link rel="stylesheet" href="css/setup.css" />
+</head>
+<body>
+<div class="setup">
+  <header class="setup-head">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    <div>
+      <h1>欢迎使用期界</h1>
+      <p>填写 SimNow 仿真账号，保存后即可开始交易。</p>
+    </div>
+  </header>
+
+  <form id="setup-form" class="setup-form" autocomplete="off">
+    <label>账户名称<input name="name" type="text" value="SimNow一号" /></label>
+    <label>资金账号<input name="user_id" type="text" placeholder="SimNow 资金账号" required /></label>
+    <label>密码<input name="password" type="password" placeholder="CTP 登录密码" required /></label>
+    <label>Broker ID<input name="broker_id" type="text" value="9999" readonly /></label>
+    <details class="advanced">
+      <summary>高级：前置地址（一般不用改）</summary>
+      <label>交易前置<input name="trade_front" type="text" value="tcp://182.254.243.31:30001" /></label>
+      <label>行情前置<input name="md_front" type="text" value="tcp://182.254.243.31:30011" /></label>
+    </details>
+    <p class="hint">首次使用 SimNow 需在官网修改密码（10 位以上、含大小写/数字/符号）。</p>
+    <div id="status" class="status" role="status"></div>
+    <div class="actions">
+      <button type="button" id="btn-test" class="btn secondary">测试连接</button>
+      <button type="submit" id="btn-save" class="btn primary">保存并进入</button>
+    </div>
+  </form>
+</div>
+<script src="js/setup.js"></script>
+</body>
+</html>

@@ -84,6 +84,33 @@ def stop_gateway(proc: subprocess.Popen[bytes]) -> None:
         proc.wait(timeout=3)
 
 
+def _log_path() -> str:
+    return os.path.join(app_root(), LOG_NAME)
+
+
+def _show_startup_failure(reason: str) -> None:
+    from desktop_dialog import format_startup_failure, show_message
+
+    show_message(format_startup_failure(reason, _log_path()), "期界 · 启动失败", error=True)
+
+
+def _ensure_account_config(force_setup: bool = False) -> bool:
+    from desktop_dialog import show_message
+    from desktop_setup import config_needs_setup, run_setup_wizard
+
+    if not force_setup and not config_needs_setup():
+        return True
+    if not run_setup_wizard():
+        if config_needs_setup():
+            show_message(
+                "尚未完成 SimNow 账号配置，无法启动。\n\n请重新打开程序并完成首次配置。",
+                "期界 · 首次配置",
+                error=True,
+            )
+            return False
+    return not config_needs_setup()
+
+
 def run_gateway_internal() -> int:
     setup_runtime_env()
     from gateway.main import main as gateway_main
@@ -99,6 +126,10 @@ def run_desktop() -> int:
 
     if not ensure_single_instance():
         return 0
+
+    force_setup = "--setup" in sys.argv
+    if not _ensure_account_config(force_setup=force_setup):
+        return 1
 
     if "--no-update-check" not in sys.argv:
         try:
@@ -127,11 +158,10 @@ def run_desktop() -> int:
         spawned = True
         if not wait_for_port(host, port):
             code = gateway_proc.poll()
-            log_hint = os.path.join(app_root(), LOG_NAME)
             if code is not None:
-                print(f"网关启动失败（退出码 {code}）。详见 {log_hint}")
+                _show_startup_failure(f"网关进程已退出（退出码 {code}）。")
             else:
-                print(f"等待网关超时。详见 {log_hint}")
+                _show_startup_failure("等待网关启动超时。")
             stop_gateway(gateway_proc)
             return 1
 
