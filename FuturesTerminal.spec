@@ -46,6 +46,7 @@ a = Analysis(
         "gateway.ctp",
         "gateway.config",
         "gateway.history",
+        "gateway.front_profiles",
         "openctp_ctp",
         "openctp_ctp.thosttraderapi",
         "openctp_ctp.thostmduserapi",

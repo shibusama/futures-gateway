@@ -36,6 +36,20 @@ class DesktopApi:
             ensure_ascii=False,
         )
 
+    def get_front_profiles(self) -> str:
+        from desktop_setup import SetupApi
+
+        return SetupApi(close_on_save=False).get_front_profiles()
+
+    def go_back(self) -> str:
+        if self._window is None or not self._main_url:
+            return json.dumps({"ok": False, "msg": "无法返回"}, ensure_ascii=False)
+        try:
+            self._window.load_url(self._main_url)
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        except OSError as exc:
+            return json.dumps({"ok": False, "msg": str(exc)}, ensure_ascii=False)
+
     def get_defaults(self) -> str:
         from desktop_setup import SetupApi
 
@@ -91,7 +105,7 @@ class DesktopApi:
         try:
             from desktop_setup import _setup_html_url
 
-            self._window.load_url(_setup_html_url())
+            self._window.load_url(_setup_html_url(settings=True))
             return json.dumps({"ok": True, "msg": "请在配置页修改并保存。"}, ensure_ascii=False)
         except OSError as exc:
             return json.dumps({"ok": False, "msg": str(exc)}, ensure_ascii=False)

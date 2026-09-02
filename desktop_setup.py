@@ -11,6 +11,17 @@ import urllib.request
 
 from app_paths import app_root, bundle_root
 from gateway.config import config_path, ensure_config, load_config, normalize, save_config as write_config
+from gateway.front_profiles import (
+    catalog_json,
+    default_simnow_profile,
+    match_simnow_profile,
+    resolve_fronts,
+)
+
+DEFAULT_FRONTS = {
+    "trade_front": default_simnow_profile()["trade_front"],
+    "md_front": default_simnow_profile()["md_front"],
+}
 
 PLACEHOLDER_MARKERS = (
     "请填写",
@@ -20,11 +31,6 @@ PLACEHOLDER_MARKERS = (
     "xxx",
     "example",
 )
-
-DEFAULT_FRONTS = {
-    "trade_front": "tcp://182.254.243.31:30001",
-    "md_front": "tcp://182.254.243.31:30011",
-}
 
 
 def _is_placeholder(value: str) -> bool:
@@ -54,12 +60,25 @@ def config_needs_setup(cfg: dict | None = None) -> bool:
     return False
 
 
-def _setup_html_url() -> str:
+def _setup_html_url(*, settings: bool = False) -> str:
     path = os.path.join(bundle_root(), "web", "setup.html")
-    return urllib.parse.urljoin("file:", urllib.request.pathname2url(os.path.abspath(path)))
+    url = urllib.parse.urljoin("file:", urllib.request.pathname2url(os.path.abspath(path)))
+    if settings:
+        url += "?mode=settings"
+    return url
 
 
 def _account_from_payload(data: dict) -> dict:
+    account_type = (data.get("account_type") or "simnow").strip() or "simnow"
+    trade, md, profile_id = resolve_fronts(
+        account_type,
+        (data.get("front_profile_id") or "").strip() or None,
+        (data.get("trade_front") or "").strip(),
+        (data.get("md_front") or "").strip(),
+    )
+    broker_id = (data.get("broker_id") or "9999").strip() or "9999"
+    if account_type == "live" and not broker_id:
+        broker_id = (data.get("broker_id") or "").strip()
     return normalize(
         {
             "host": "127.0.0.1",
@@ -68,11 +87,13 @@ def _account_from_payload(data: dict) -> dict:
             "accounts": [
                 {
                     "name": (data.get("name") or "SimNow一号").strip() or "SimNow一号",
+                    "account_type": account_type,
                     "user_id": (data.get("user_id") or "").strip(),
                     "password": data.get("password") or "",
-                    "broker_id": (data.get("broker_id") or "9999").strip() or "9999",
-                    "trade_front": (data.get("trade_front") or DEFAULT_FRONTS["trade_front"]).strip(),
-                    "md_front": (data.get("md_front") or DEFAULT_FRONTS["md_front"]).strip(),
+                    "broker_id": broker_id,
+                    "front_profile_id": profile_id or "",
+                    "trade_front": trade or DEFAULT_FRONTS["trade_front"],
+                    "md_front": md or DEFAULT_FRONTS["md_front"],
                 }
             ],
         }
@@ -117,6 +138,9 @@ class SetupApi:
         self._window = None
         self._close_on_save = close_on_save
 
+    def get_front_profiles(self) -> str:
+        return catalog_json()
+
     def get_defaults(self) -> str:
         ensure_config()
         try:
@@ -124,11 +148,16 @@ class SetupApi:
             acc = (cfg.get("accounts") or [{}])[0]
         except (json.JSONDecodeError, OSError, TypeError):
             acc = {}
+        profile_id = acc.get("front_profile_id") or match_simnow_profile(
+            acc.get("trade_front", ""), acc.get("md_front", "")
+        ) or default_simnow_profile()["id"]
         payload = {
+            "account_type": acc.get("account_type") or "simnow",
             "name": acc.get("name") or "SimNow一号",
             "user_id": "" if _is_placeholder(acc.get("user_id", "")) else acc.get("user_id", ""),
             "password": "",
             "broker_id": acc.get("broker_id") or "9999",
+            "front_profile_id": profile_id,
             "trade_front": acc.get("trade_front") or DEFAULT_FRONTS["trade_front"],
             "md_front": acc.get("md_front") or DEFAULT_FRONTS["md_front"],
         }
@@ -140,6 +169,8 @@ class SetupApi:
         except json.JSONDecodeError:
             return json.dumps({"ok": False, "msg": "表单数据无效"}, ensure_ascii=False)
         acc = _account_from_payload(data)
+        if acc.get("account_type") == "live":
+            return json.dumps({"ok": False, "msg": "实盘 CTP 尚未开放，请选择 SimNow 仿真"}, ensure_ascii=False)
         if _is_placeholder(acc.get("user_id", "")) or not (acc.get("password") or "").strip():
             return json.dumps({"ok": False, "msg": "请先填写资金账号和密码"}, ensure_ascii=False)
         result = test_account_connection(acc)
@@ -151,6 +182,8 @@ class SetupApi:
         except json.JSONDecodeError:
             return json.dumps({"ok": False, "msg": "表单数据无效"}, ensure_ascii=False)
         acc = _account_from_payload(data)
+        if acc.get("account_type") == "live":
+            return json.dumps({"ok": False, "msg": "实盘 CTP 尚未开放，请选择 SimNow 仿真"}, ensure_ascii=False)
         if _is_placeholder(acc.get("user_id", "")) or not (acc.get("password") or "").strip():
             return json.dumps({"ok": False, "msg": "请先填写资金账号和密码"}, ensure_ascii=False)
         cfg = normalize(

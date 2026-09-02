@@ -79,6 +79,8 @@ def normalize(cfg):
     cfg.setdefault("accounts", [])
     for acc in cfg["accounts"]:
         acc.setdefault("broker_id", "9999")
-        acc.setdefault("trade_front", "tcp://180.168.146.187:10101")
-        acc.setdefault("md_front", "tcp://180.168.146.187:10111")
+        acc.setdefault("account_type", "simnow")
+        acc.setdefault("front_profile_id", "")
+        acc.setdefault("trade_front", "tcp://182.254.243.31:40001")
+        acc.setdefault("md_front", "tcp://182.254.243.31:40011")
     return cfg
