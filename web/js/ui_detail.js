@@ -2,9 +2,22 @@
  * ui_detail.js — 账户明细页：行情列表 / K线 / 盘口 / 下单面板 / 持仓委托。
  */
 import { store, pxOf, emit, getTick, tickIsLive, acctFloat, positionLivePnl } from "./store.js";
-import { buildCandles, renderChart, updateChartLive } from "./chart.js";
+import { buildCandles, shouldOverlayLive } from "./candles.js";
 import { fetchBarHistory } from "./history.js";
 import { getWatchlist, symbolMeta, canCancelOrder, exchangeOf } from "./symbols.js";
+
+function paintChart(el, candles, price, dec, tf, liveOnly) {
+  if (!el) return;
+  import("./chart.js")
+    .then((m) => {
+      if (liveOnly) m.updateChartLive(el, candles, price, dec, tf);
+      else m.renderChart(el, candles, price, dec, tf);
+    })
+    .catch((err) => {
+      console.error("chart load failed", err);
+      el.innerHTML = `<div class="chart-empty">K 线图加载失败</div>`;
+    });
+}
 
 const TIME_FRAMES = [
   { key: "1m", label: "1分" },
@@ -33,10 +46,45 @@ export function selectSymbol(code) {
 
 /** tick 节流刷新：只更新报价和 K 线末根，不重绘表格 */
 export function refreshDetailLive() {
-  renderWatchlist();
+  patchWatchlistQuotes();
   renderSymbolPanel({ liveOnly: true });
   const account = stateAccount();
   if (account) document.getElementById("d-stats").innerHTML = accountStats(account);
+}
+
+function quoteBits(s) {
+  const t = getTick(s.code);
+  const p = t?.price > 0 ? t.price : 0;
+  const pre = t?.pre_close;
+  let pcText = p ? "0.00%" : "—";
+  let pcCls = "";
+  if (p && pre && pre > 0) {
+    const pc = ((p - pre) / pre) * 100;
+    pcText = (pc >= 0 ? "+" : "") + pc.toFixed(2) + "%";
+    pcCls = cls(pc);
+  }
+  return { p, pcText, pcCls, stale: !!(p && !tickIsLive(s.code)) };
+}
+
+function patchWatchlistQuotes() {
+  const root = document.getElementById("watchlist");
+  if (!root) return;
+  getWatchlist().forEach((s) => {
+    const row = root.querySelector(`.wl-row[data-code="${s.code}"]`);
+    if (!row) return;
+    const item = row.closest(".wl-item");
+    const tabs = row.querySelectorAll(".tab");
+    const q = quoteBits(s);
+    if (tabs[0]) tabs[0].textContent = q.p ? fmt(q.p, s.dec) : "—";
+    if (tabs[1]) {
+      tabs[1].textContent = q.pcText;
+      tabs[1].className = `right tab ${q.pcCls}`;
+    }
+    if (item) {
+      item.classList.toggle("active", s.code === store.sel);
+      item.classList.toggle("stale", q.stale);
+    }
+  });
 }
 
 function renderWatchlist() {
@@ -44,24 +92,21 @@ function renderWatchlist() {
   if (!symbols.some((s) => s.code === store.sel)) {
     store.sel = symbols[0]?.code || store.sel;
   }
-  document.getElementById("watchlist").innerHTML = symbols.map((s) => {
-    const t = getTick(s.code);
-    const p = t?.price > 0 ? t.price : 0;
-    const pre = t?.pre_close;
-    let pcText = p ? "0.00%" : "—";
-    let pcCls = "";
-    if (p && pre && pre > 0) {
-      const pc = ((p - pre) / pre) * 100;
-      pcText = (pc >= 0 ? "+" : "") + pc.toFixed(2) + "%";
-      pcCls = cls(pc);
-    }
-    const stale = p && !tickIsLive(s.code) ? " stale" : "";
-    const canRemove = symbols.length > 1;
-    return `<div class="wl-item${store.sel === s.code ? " active" : ""}${stale}">
+  const root = document.getElementById("watchlist");
+  const key = symbols.map((s) => s.code).join(",");
+  if (root.dataset.codes === key && root.querySelectorAll(".wl-row").length === symbols.length) {
+    patchWatchlistQuotes();
+    return;
+  }
+  root.dataset.codes = key;
+  const canRemove = symbols.length > 1;
+  root.innerHTML = symbols.map((s) => {
+    const q = quoteBits(s);
+    return `<div class="wl-item${store.sel === s.code ? " active" : ""}${q.stale ? " stale" : ""}">
       <button type="button" class="wl-row" data-code="${s.code}">
         <span class="wl-name">${s.name}<small>${s.code}</small></span>
-        <span class="right tab">${p ? fmt(p, s.dec) : "—"}</span>
-        <span class="right tab ${pcCls}">${pcText}</span>
+        <span class="right tab">${q.p ? fmt(q.p, s.dec) : "—"}</span>
+        <span class="right tab ${q.pcCls}">${q.pcText}</span>
       </button>
       ${canRemove ? `<button type="button" class="wl-remove" data-remove="${s.code}" title="移除">×</button>` : ""}
     </div>`;
@@ -80,7 +125,7 @@ function renderSymbolPanel(opts = {}) {
 
   // 图表头
   document.getElementById("ch-name").innerHTML = `${sym.name}<small>${sym.code}</small>`;
-  document.getElementById("ch-exch").textContent = live ? "SimNow" : (tick ? "快照" : "连接中…");
+  document.getElementById("ch-exch").textContent = live ? "盘口·SimNow" : (tick ? "快照" : "连接中…");
   document.getElementById("ch-price").textContent = price ? fmt(price, sym.dec) : "—";
   document.getElementById("ch-price").className = pClass;
   document.getElementById("ch-change").textContent = chg ? `${chg >= 0 ? "+" : ""}${fmt(chg, sym.dec)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : "—";
@@ -93,21 +138,21 @@ function renderSymbolPanel(opts = {}) {
   }
 
   const candles = buildCandles(store.sel);
+  const overlayPx = shouldOverlayLive(store.sel, price) ? price : 0;
   const chartEl = document.getElementById("chart-container");
-  if (opts.liveOnly) {
-    updateChartLive(chartEl, candles, price, sym.dec, store.tf);
-  } else {
-    renderChart(chartEl, candles, price, sym.dec, store.tf);
+  if (!(opts.liveOnly && !overlayPx)) {
+    paintChart(chartEl, candles, overlayPx, sym.dec, store.tf, !!opts.liveOnly);
   }
 
   // 盘口
   document.getElementById("book-code").textContent = store.sel;
   renderBook(tick, sym.dec, sym.tick);
 
-  // 下单面板
-  document.getElementById("t-sym").textContent = `${sym.name} ${sym.code}`;
   document.getElementById("t-price").textContent = price ? fmt(price, sym.dec) : "—";
   document.getElementById("t-price").className = pClass;
+  if (opts.liveOnly) return;
+
+  document.getElementById("t-sym").textContent = `${sym.name} ${sym.code}`;
   document.getElementById("dir-buy").className = `dt buy${store.dir === "buy" ? " active" : ""}`;
   document.getElementById("dir-sell").className = `dt sell${store.dir === "sell" ? " active" : ""}`;
   document.getElementById("qty-input").value = store.qty;
@@ -239,5 +284,5 @@ export function rerenderChart() {
   const sym = currentSymbol();
   const tick = store.ticks[store.sel];
   const candles = buildCandles(store.sel);
-  renderChart(document.getElementById("chart-container"), candles, tick ? tick.price : 0, sym.dec, store.tf);
+  paintChart(document.getElementById("chart-container"), candles, tick ? tick.price : 0, sym.dec, store.tf, false);
 }

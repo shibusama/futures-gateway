@@ -315,9 +315,9 @@ def run_desktop() -> int:
                 runtime.request_quit()
                 return
         try:
-            window.load_url(main_url)
+            window.load_url(f"{main_url.rstrip('/')}/loading.html")
         except Exception:
-            _show_startup_failure("无法打开交易界面，请检查网关是否正常运行。")
+            _show_startup_failure("无法打开登录界面，请检查网关是否正常运行。")
             runtime.request_quit()
 
     threading.Thread(target=boot_main_ui, daemon=True).start()

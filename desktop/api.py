@@ -19,6 +19,25 @@ class DesktopApi:
         self._main_url = main_url
         self._quit_callback = quit_callback
 
+    def enter_main(self) -> str:
+        """登录成功后放大窗口；页面由 loading 自己跳转到交易界面。"""
+        if self._window is None:
+            return json.dumps({"ok": False, "msg": "窗口不可用"}, ensure_ascii=False)
+        try:
+            def _go() -> None:
+                try:
+                    if hasattr(self._window, "resize"):
+                        self._window.resize(1280, 820)
+                    if hasattr(self._window, "set_title"):
+                        self._window.set_title("期界 · 期货交易终端")
+                except Exception:
+                    pass
+
+            threading.Timer(0.05, _go).start()
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        except OSError as exc:
+            return json.dumps({"ok": False, "msg": str(exc)}, ensure_ascii=False)
+
     def _navigate(self, url: str) -> None:
         """延迟切换当前窗口到 url。
 

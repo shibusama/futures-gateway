@@ -6,7 +6,6 @@ import { connect, sendOrder, sendCancel, sendSubscribe } from "./ws.js";
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
 import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./ui_detail.js";
-import { bindChartHover } from "./chart.js";
 import { initOfflineDemo, isOfflineMode } from "./offline.js";
 import { initTheme, toggleTheme } from "./theme.js";
 import { bindAboutDialog } from "./about.js";
@@ -196,11 +195,6 @@ function bindEvents() {
     if (!orderSysId) { toast("缺少报单编号，无法撤单"); return; }
     sendCancel({ account, order_sys_id: orderSysId, symbol, exchange });
     toast(`撤单已发送：${symbol}`);
-  });
-
-  // K线悬停（Lightweight Charts 内置十字光标）
-  bindChartHover(document.getElementById("chart-container"), () => {
-    if (store.view === "detail") rerenderChart();
   });
 }
 

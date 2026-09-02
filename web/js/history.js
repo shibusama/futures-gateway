@@ -1,5 +1,5 @@
 /**
- * history.js — 从网关拉取历史 K 线（akshare）
+ * history.js — 从网关拉取历史 K 线（新浪期货分钟/日线）
  */
 import { store, emit, seedTick } from "./store.js";
 import { isOfflineMode } from "./offline.js";
@@ -39,14 +39,6 @@ function seedFromBars(symbol, bars) {
 export function fetchBarHistory(symbol, tf = store.tf) {
   const key = historyKey(symbol, tf);
   if (inflight.has(key)) return Promise.resolve(store.barHistory[key] || []);
-  if (store.barHistory[key]?.length) {
-    seedFromBars(symbol, store.barHistory[key]);
-    return Promise.resolve(store.barHistory[key]);
-  }
-  if (isOfflineMode()) {
-    return Promise.resolve([]);
-  }
-
   inflight.add(key);
   return fetch(`/api/bars?symbol=${encodeURIComponent(symbol)}&period=${encodeURIComponent(tf)}`)
     .then((r) => r.json())
@@ -55,6 +47,8 @@ export function fetchBarHistory(symbol, tf = store.tf) {
         store.barHistory[key] = data.bars;
         seedFromBars(symbol, data.bars);
         emit({ type: "history", symbol, tf, count: data.bars.length });
+      } else {
+        store.barHistory[key] = store.barHistory[key] || [];
       }
       return store.barHistory[key] || [];
     })

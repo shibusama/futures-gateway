@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>期界 · 启动中</title>
+<title>期界 · 正在登录</title>
 <link rel="stylesheet" href="css/loading.css" />
 </head>
 <body>
@@ -12,9 +12,20 @@
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
   </div>
   <h1>期界 · 期货交易终端</h1>
-  <p class="status" id="status">正在连接 SimNow 网关…</p>
-  <div class="spinner" aria-hidden="true"></div>
-  <p class="hint">首次启动可能需要十几秒，请稍候</p>
+  <p class="status" id="status">正在启动本地网关…</p>
+  <ol class="steps" aria-label="登录进度">
+    <li class="step pending" data-step="gateway"><span class="mark">○</span>启动本地网关</li>
+    <li class="step pending" data-step="front"><span class="mark">○</span>连接 SimNow 前置</li>
+    <li class="step pending" data-step="login"><span class="mark">○</span>认证并登录账户</li>
+    <li class="step pending" data-step="funds"><span class="mark">○</span>同步资金账户</li>
+  </ol>
+  <div class="spinner" id="spinner" aria-hidden="true"></div>
+  <div class="actions" id="actions" hidden>
+    <button type="button" class="btn secondary" id="btn-retry">重试</button>
+    <button type="button" class="btn primary" id="btn-setup">账号配置</button>
+  </div>
+  <p class="hint">登录成功后才会进入交易界面</p>
 </div>
+<script src="js/boot.js"></script>
 </body>
 </html>

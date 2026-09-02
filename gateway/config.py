@@ -83,4 +83,8 @@ def normalize(cfg):
         acc.setdefault("front_profile_id", "")
         acc.setdefault("trade_front", "tcp://182.254.243.31:40001")
         acc.setdefault("md_front", "tcp://182.254.243.31:40011")
+        if "user_id" in acc:
+            acc["user_id"] = str(acc.get("user_id") or "").strip()
+        if "password" in acc:
+            acc["password"] = str(acc.get("password") or "").strip()
     return cfg

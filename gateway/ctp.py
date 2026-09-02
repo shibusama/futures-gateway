@@ -327,8 +327,8 @@ class CtpGateway:
 
     def __init__(self, acc_cfg: dict, emit, flow_dir: str):
         self.name = acc_cfg.get("name", "未命名账号")
-        self.user_id = acc_cfg["user_id"]
-        self.password = acc_cfg["password"]
+        self.user_id = str(acc_cfg["user_id"]).strip()
+        self.password = str(acc_cfg["password"]).strip()
         self.broker_id = acc_cfg.get("broker_id", "9999")
         self.trade_front = acc_cfg.get("trade_front", "")
         self.md_front = acc_cfg.get("md_front", "")

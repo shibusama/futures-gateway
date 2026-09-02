@@ -11,14 +11,14 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 24px;
+  gap: 10px;
+  padding: 28px 24px 32px;
   text-align: center;
 }
 .logo {
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
   background: #2f6bff;
   color: #fff;
   display: flex;
@@ -28,27 +28,82 @@ html, body {
 }
 h1 {
   margin: 8px 0 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
 }
 .status {
   margin: 0;
+  max-width: 320px;
   color: #6b7486;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 2.4em;
 }
+.status.ok { color: #129e58; }
+.status.err { color: #e03838; }
+.steps {
+  list-style: none;
+  margin: 8px 0 4px;
+  padding: 12px 16px;
+  width: min(280px, 100%);
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e2e6ef;
+  border-radius: 12px;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  color: #9aa3b5;
+  font-size: 13px;
+}
+.step + .step { border-top: 1px solid #f0f3f8; }
+.step .mark {
+  width: 1.1em;
+  text-align: center;
+  font-size: 12px;
+}
+.step.active { color: #2f6bff; font-weight: 600; }
+.step.done { color: #1b2333; }
+.step.error { color: #e03838; font-weight: 600; }
 .hint {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: #9aa3b5;
   font-size: 12px;
 }
 .spinner {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: 3px solid #d8deea;
   border-top-color: #2f6bff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+.spinner[hidden] { display: none; }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.actions[hidden] { display: none; }
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn.primary {
+  background: #2f6bff;
+  color: #fff;
+}
+.btn.secondary {
+  background: #fff;
+  color: #1b2333;
+  border: 1px solid #e2e6ef;
 }

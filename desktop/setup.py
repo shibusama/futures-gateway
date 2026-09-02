@@ -88,7 +88,7 @@ def _account_from_payload(data: dict) -> dict:
                     "name": (data.get("name") or "SimNow一号").strip() or "SimNow一号",
                     "account_type": account_type,
                     "user_id": (data.get("user_id") or "").strip(),
-                    "password": data.get("password") or "",
+                    "password": (data.get("password") or "").strip(),
                     "broker_id": broker_id,
                     "front_profile_id": profile_id or "",
                     "trade_front": trade or DEFAULT_FRONTS["trade_front"],
