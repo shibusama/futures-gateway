@@ -29,7 +29,7 @@ class DesktopRuntime:
             except Exception:
                 pass
         if self.tray is not None:
-            self.tray.notify("已隐藏到系统托盘。右键图标选择「退出」可完全关闭。")
+            self.tray.notify("已隐藏到系统托盘。菜单或托盘选择「退出」可完全关闭。")
 
     def show_window(self) -> None:
         if self.window is None:
@@ -53,9 +53,7 @@ class DesktopRuntime:
     def on_closing(self, window: Any) -> bool:
         if self.quitting:
             return True
-        if self.tray is not None and self.tray.active:
-            self.hide_to_tray()
-        elif self.window is not None:
+        if self.window is not None:
             try:
                 self.window.minimize()
             except Exception:
@@ -74,7 +72,9 @@ class DesktopRuntime:
         if self.window is None:
             return
         try:
-            self.window.evaluate_js("location.reload()")
+            self.window.evaluate_js(
+                "window.__fgSoftRefresh ? window.__fgSoftRefresh() : location.reload()"
+            )
         except Exception:
             pass
 

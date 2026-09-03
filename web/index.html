@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>期界 · 期货交易终端（CTP 网关版）</title>
 <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -67,6 +70,22 @@
   <!-- 通用下单 -->
   <div id="view-trade" style="display:none">
     <div class="trade-wrap">
+      <div class="trade-status-bar" id="trade-status-bar" aria-label="资金与连接状态">
+        <div class="trade-status-left">
+          <span id="trade-status-clock" class="trade-status-clock"></span>
+          <span class="trade-status-hint">按Esc，可回到上一页面</span>
+        </div>
+        <div class="trade-status-metrics">
+          <span class="trade-status-item">客户权益：<b id="trade-st-equity" class="trade-st-val">—</b></span>
+          <span class="trade-status-sep" aria-hidden="true"></span>
+          <span class="trade-status-item">平仓盈亏：<b id="trade-st-close" class="trade-st-val">—</b></span>
+          <span class="trade-status-sep" aria-hidden="true"></span>
+          <span class="trade-status-item">持仓盈亏：<b id="trade-st-pos" class="trade-st-val">—</b></span>
+          <span class="trade-status-sep" aria-hidden="true"></span>
+          <span class="trade-status-item">可用资金：<b id="trade-st-avail" class="trade-st-val">—</b></span>
+        </div>
+        <div class="trade-status-right" id="trade-status-links"></div>
+      </div>
       <div class="panel trade-bar">
         <div class="trade-bar-head">
           <span class="trade-title">通用下单</span>
@@ -85,18 +104,106 @@
       </div>
       <div class="trade-main">
         <div class="trade-left">
-          <div class="panel watchlist trade-panel">
-            <div class="panel-title">自选合约 <span class="live-dot"></span></div>
-            <div class="wl-head"><span>合约</span><span class="right">最新价</span><span class="right">涨跌幅</span></div>
-            <div id="trade-watchlist"></div>
-            <div class="wl-add">
-              <input id="trade-wl-add-input" type="text" placeholder="添加合约，如 rb2610" autocomplete="off" spellcheck="false" />
-              <button type="button" id="trade-wl-add-btn">添加</button>
+          <div class="panel trade-quote-panel" id="trade-quote-panel">
+            <div class="trade-quote-body tbl-wrap">
+              <table class="trade-quote-table">
+                <thead>
+                  <tr>
+                    <th class="col-no">序号</th>
+                    <th>合约代码</th>
+                    <th>合约名</th>
+                    <th class="col-trend">两天走势</th>
+                    <th>最新价</th>
+                    <th>买一价</th>
+                    <th>买一量</th>
+                    <th>卖一价</th>
+                    <th>卖一量</th>
+                  </tr>
+                </thead>
+                <tbody id="trade-watchlist"></tbody>
+              </table>
+              <div id="trade-quote-empty" class="trade-quote-empty">
+                <p>在这里输入合约代码加入自选, 或拖拽合约进入</p>
+                <input id="trade-wl-add-input" type="text" class="trade-quote-add-input" placeholder="输入合约代码，如 rb2610" autocomplete="off" spellcheck="false" />
+              </div>
+            </div>
+            <div class="trade-quote-tabs">
+              <button type="button" id="trade-quote-tab-fav" class="bt active">自选1</button>
+              <button type="button" id="trade-quote-tab-combo" class="bt" disabled title="开发中">自组合报价表</button>
+              <button type="button" id="trade-quote-tab-main" class="bt" disabled title="开发中">主力</button>
+              <button type="button" id="trade-quote-tab-foreign" class="bt" disabled title="开发中">外盘行情(延时)</button>
             </div>
           </div>
-          <div class="panel trade-panel trade-pending-panel">
-            <div class="panel-title">未成交 (<span id="trade-pending-count">0</span>)</div>
-            <div id="trade-pending" class="tbl-wrap trade-pending-wrap"></div>
+        </div>
+        <div class="trade-center">
+          <div class="panel trade-order-panel" id="trade-order-panel">
+            <div class="trade-order-toolbar" id="trade-order-toolbar">
+              <select id="trade-order-scope" class="trade-filter-select" aria-label="委托范围">
+                <option value="all">全部委托</option>
+                <option value="working">可撤委托</option>
+                <option value="done">已成交</option>
+                <option value="canceled">已撤单</option>
+              </select>
+              <select id="trade-order-type" class="trade-filter-select" aria-label="买卖类型">
+                <option value="all">全部类型</option>
+                <option value="buy">买入</option>
+                <option value="sell">卖出</option>
+              </select>
+              <select id="trade-order-exchange" class="trade-filter-select" aria-label="交易所">
+                <option value="all">全部交易所</option>
+                <option value="SHFE">上期所</option>
+                <option value="DCE">大商所</option>
+                <option value="CZCE">郑商所</option>
+                <option value="CFFEX">中金所</option>
+                <option value="INE">能源中心</option>
+                <option value="GFEX">广期所</option>
+              </select>
+              <select id="trade-order-source" class="trade-filter-select" aria-label="来源">
+                <option value="all">全部来源</option>
+                <option value="manual">手工</option>
+                <option value="algo">算法</option>
+              </select>
+              <input id="trade-order-query" class="trade-filter-input" type="text" placeholder="品种/合约（用','分隔）" spellcheck="false" />
+              <div class="trade-pos-actions">
+                <button type="button" id="trade-order-chase" class="trade-act-btn">市价追单 ▾</button>
+                <button type="button" id="trade-order-cancel" class="trade-act-btn">撤单</button>
+                <button type="button" id="trade-order-cancel-all" class="trade-act-btn">全撤</button>
+                <button type="button" id="trade-order-timer-cancel" class="trade-act-btn">定时全撤关闭</button>
+              </div>
+              <button type="button" id="trade-order-help" class="trade-help-btn" title="委托说明">?</button>
+            </div>
+            <div class="trade-order-body tbl-wrap">
+              <table class="trade-order-table">
+                <thead>
+                  <tr>
+                    <th class="col-no">序号</th>
+                    <th>用户描述</th>
+                    <th>合约代码</th>
+                    <th>买卖</th>
+                    <th>开平</th>
+                    <th>状态</th>
+                    <th>委托价格</th>
+                    <th>成交均价</th>
+                    <th>总手数</th>
+                    <th>未成交</th>
+                    <th>已成交</th>
+                    <th>已撤/错单</th>
+                    <th>投保</th>
+                  </tr>
+                </thead>
+                <tbody id="trade-order-body"></tbody>
+              </table>
+              <div id="trade-order-empty" class="trade-order-empty">登录期货账户后可查看数据</div>
+            </div>
+            <div class="trade-order-tabs">
+              <button type="button" id="trade-order-tab-ord" class="bt active">委托列表</button>
+              <button type="button" class="bt" disabled title="开发中">条件单列表</button>
+              <button type="button" class="bt" disabled title="开发中">移仓换月列表</button>
+              <button type="button" class="bt" disabled title="开发中">下单算法列表</button>
+              <button type="button" class="bt" disabled title="开发中">篮子下单列表</button>
+              <button type="button" class="bt" disabled title="开发中">自组合列表</button>
+              <button type="button" class="bt" disabled title="开发中">行权委托列表</button>
+            </div>
           </div>
         </div>
         <aside class="panel trade-ticket">
@@ -214,6 +321,20 @@
             </select>
             <input id="trade-stats-query" class="trade-filter-input" type="text" placeholder="品种/合约（用“,”分隔）" spellcheck="false" />
             <button type="button" id="trade-stats-risk-btn" class="trade-act-btn">设置风险预警</button>
+          </div>
+          <div class="trade-combo-toolbar" id="trade-combo-toolbar" hidden>
+            <select id="trade-combo-type" class="trade-filter-select" aria-label="方向类型">
+              <option value="all">全部</option>
+              <option value="long">多头</option>
+              <option value="short">空头</option>
+            </select>
+            <input id="trade-combo-query" class="trade-filter-input" type="text" placeholder="品种/合约（用','分隔）" spellcheck="false" />
+            <div class="trade-pos-actions">
+              <button type="button" id="trade-combo-counter-close" class="trade-act-btn">对价平仓</button>
+              <button type="button" id="trade-combo-market-close" class="trade-act-btn">市价平仓</button>
+              <button type="button" id="trade-combo-reverse" class="trade-act-btn">市价反手</button>
+            </div>
+            <button type="button" id="trade-combo-help" class="trade-help-btn" title="自组合说明">?</button>
           </div>
           <div id="trade-tables" class="tbl-wrap trade-table-area"></div>
         </div>
@@ -334,7 +455,6 @@
     </div>
   </div>
 
-  <footer class="foot">行情/交易经本地 Python 网关连接 SimNow 仿真 · 不构成投资建议</footer>
 </div>
 <script type="module" src="js/app.js"></script>
 </body>

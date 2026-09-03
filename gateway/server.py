@@ -125,6 +125,10 @@ async def websocket_handler(request):
     try:
         # 新客户端连上：先推送当前网关状态（账号登录情况）
         await ws.send_str(json.dumps({"type": "system", "cmd": "hello", "data": mgr.status()}, ensure_ascii=False))
+        # 已登录但资金尚未缓存时，主动触发一次查询（CTP 结算确认后才有资金）
+        st = mgr.status().get("last_states") or {}
+        if any(s.get("login") == "ok" and not s.get("balance") for s in st.values()):
+            mgr.query_all()
         async for msg in ws:
             if msg.type == web.WSMsgType.TEXT:
                 try:

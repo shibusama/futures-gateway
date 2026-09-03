@@ -170,7 +170,15 @@ async function saveConfig(form) {
       setStatus(result.msg || "保存失败", "err");
       return;
     }
-    setStatus(result.msg || "已保存", "ok");
+    setStatus(result.msg || "已保存，正在重新登录…", "ok");
+    if (api && typeof api.save_config === "function") {
+      // DesktopApi 会重启网关并跳转 loading.html
+      return;
+    }
+    try {
+      await fetch("/api/reload-config", { method: "POST" });
+    } catch (_) { /* ignore */ }
+    location.href = "/loading.html";
   } catch (err) {
     setStatus("保存失败：" + (err && err.message ? err.message : err), "err");
   } finally {

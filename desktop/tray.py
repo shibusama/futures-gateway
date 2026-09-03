@@ -34,20 +34,32 @@ class TrayController:
                 return path
         return ""
 
+    def _load_image(self) -> "object | None":
+        from PIL import Image, ImageDraw
+
+        icon_path = self._icon_path()
+        if icon_path:
+            try:
+                return Image.open(icon_path)
+            except OSError:
+                pass
+        # 安装目录缺 icon 时仍显示托盘，避免用户找不到程序
+        img = Image.new("RGBA", (64, 64), (47, 107, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.line([(12, 44), (28, 24), (40, 48), (52, 18)], fill=(255, 255, 255, 255), width=4)
+        return img
+
     def start(self) -> None:
         if os.name != "nt":
             return
         try:
             import pystray
-            from PIL import Image
         except ImportError:
             return
 
-        icon_path = self._icon_path()
-        if not icon_path:
+        image = self._load_image()
+        if image is None:
             return
-
-        image = Image.open(icon_path)
 
         menu = pystray.Menu(
             pystray.MenuItem("显示窗口", lambda _icon, _item: self._on_show(), default=True),

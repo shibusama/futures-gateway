@@ -39,9 +39,20 @@ export const store = {
   tradePosType: "all",      // all | long | short
   tradePosExchange: "all",
   tradePosQuery: "",
+  tradeComboType: "all",    // all | long | short（自组合页）
+  tradeComboQuery: "",
+  tradeOrderTab: "ord",     // ord | cond | rollover | algo | basket | combo | exercise
+  tradeOrderScope: "all",   // all | working | done | canceled
+  tradeOrderType: "all",    // all | buy | sell
+  tradeOrderExchange: "all",
+  tradeOrderSource: "all",
+  tradeOrderQuery: "",
+  tradeOrderSelected: [],   // order keys
   tradeCloseRatio: 100,
   tradePosSelected: [],     // position keys: symbol_direction
   tradeReadManualSLTP: false,
+  gatewayLinkAt: null,      // 网关 WebSocket 连接时刻
+  accountLinkAt: {},        // account -> { trade: {at, ok}, md: {at, ok} }
   reconnectAttempt: 0,      // WebSocket 重连次数（供 UI 展示）
   wasConnected: false,      // 是否曾成功连上过
 };

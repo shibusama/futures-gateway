@@ -31,7 +31,7 @@ export function renderOverview() {
     if (b) {
       const fpnl = acctFloat(acc);
       rows += `<tr class="row-click" data-acct="${acc}">
-        <td>${acc}</td><td class="tab">${b.account || "—"}</td><td>SimNow</td>
+        <td>${acc}</td><td class="tab">${b.account_id || b.account || "—"}</td><td>SimNow</td>
         <td>${stBadge}</td>
         <td class="tab">${fmt(b.balance)}</td>
         <td class="tab">${fmt(b.available)}</td>
@@ -89,11 +89,7 @@ export function renderOverview() {
     document.getElementById("sum-empty").style.display = hasPos ? "none" : "block";
   }
 
-  document.getElementById("roadmap").innerHTML =
-    store.conn === "offline"
-      ? `<b>UI 对比模式 →</b> 未连接 Python 网关 · 演示数据 · 布局与线上一致，仅供界面对照。`
-      : `<b>连接状态 →</b> 网关 ${store.conn === "open" ? "已连接" : "未连接"} · ${store.accounts.length} 个账户 ·
-         行情/持仓/委托实时来自本地 CTP(SimNow) 网关。`;
+  document.getElementById("roadmap").innerHTML = "";
 
   emit({ type: "ui", view: "overview" });
 }

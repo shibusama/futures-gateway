@@ -3,12 +3,13 @@
  */
 const POLL_MS = 400;
 const TIMEOUT_MS = 60000;
-const ENTER_DELAY_MS = 500;
+const WAIT_HINT_MS = 8000;
 
 let entered = false;
 let startedAt = Date.now();
 let readySince = 0;
 let pollTimer = null;
+let waitHintShown = false;
 
 function $(id) {
   return document.getElementById(id);
@@ -32,14 +33,14 @@ function setStep(id, state) {
   }
 }
 
-function showActions(show) {
-  const el = $("actions");
-  if (el) el.hidden = !show;
-}
-
 function showSpinner(show) {
   const el = $("spinner");
   if (el) el.hidden = !show;
+}
+
+function mainHref(path = "/") {
+  if (location.protocol.startsWith("http")) return `${location.origin}${path}`;
+  return `http://127.0.0.1:8765${path}`;
 }
 
 async function waitApi(timeoutMs = 2500) {
@@ -64,7 +65,20 @@ async function enterMain() {
   if (api && typeof api.enter_main === "function") {
     try { await api.enter_main(); } catch (_) { /* ignore */ }
   }
-  location.replace("/");
+  location.replace(mainHref("/"));
+}
+
+async function enterBrowseMode() {
+  if (entered) return;
+  entered = true;
+  clearInterval(pollTimer);
+  showSpinner(false);
+  setStatus("正在进入界面（SimNow 仍在后台登录）…", "ok");
+  const api = await waitApi(800);
+  if (api && typeof api.enter_main === "function") {
+    try { await api.enter_main(); } catch (_) { /* ignore */ }
+  }
+  location.replace(mainHref("/"));
 }
 
 function applyStatus(data) {
@@ -122,8 +136,21 @@ function applyStatus(data) {
   return "wait";
 }
 
+function maybeShowWaitHint() {
+  if (waitHintShown || entered) return;
+  if (Date.now() - startedAt < WAIT_HINT_MS) return;
+  waitHintShown = true;
+  const el = $("status");
+  if (!el || el.classList.contains("err") || el.classList.contains("ok")) return;
+  const base = el.textContent || "正在登录 SimNow…";
+  if (!base.includes("账号配置")) {
+    setStatus(`${base}（等待较久时可点「账号配置」或「进入界面」）`);
+  }
+}
+
 async function poll() {
   if (entered) return;
+  maybeShowWaitHint();
   try {
     const res = await fetch("/api/boot-status");
     if (!res.ok) throw new Error("boot-status " + res.status);
@@ -139,9 +166,7 @@ async function poll() {
     }
     readySince = 0;
     if (phase === "fail") {
-      clearInterval(pollTimer);
       showSpinner(false);
-      showActions(true);
       return;
     }
   } catch (_) {
@@ -150,7 +175,6 @@ async function poll() {
   if (Date.now() - startedAt > TIMEOUT_MS) {
     clearInterval(pollTimer);
     showSpinner(false);
-    showActions(true);
     setStatus("登录超时。请检查网络、前置站点或账号密码。", "err");
     setStep("login", "error");
   }
@@ -168,26 +192,39 @@ async function onSetup() {
 function onRetry() {
   startedAt = Date.now();
   readySince = 0;
+  waitHintShown = false;
   entered = false;
-  showActions(false);
   showSpinner(true);
   setStep("front", "pending");
   setStep("login", "pending");
   setStep("funds", "pending");
   setStatus("正在重新检查登录状态…");
+  clearInterval(pollTimer);
   pollTimer = setInterval(poll, POLL_MS);
   poll();
 }
 
-function boot() {
-  if (location.protocol === "file:") {
-    setStatus("正在启动本地网关…");
-    setStep("gateway", "active");
-    return;
-  }
-  setStep("gateway", "done");
+function wireActions() {
   $("btn-setup")?.addEventListener("click", onSetup);
   $("btn-retry")?.addEventListener("click", onRetry);
+  $("btn-enter")?.addEventListener("click", () => enterBrowseMode());
+}
+
+function boot() {
+  wireActions();
+
+  if (location.protocol === "file:") {
+    setStatus("正在连接本地网关，请稍候…（稍后会自动跳转）");
+    setStep("gateway", "active");
+    const enterBtn = $("btn-enter");
+    if (enterBtn) {
+      enterBtn.disabled = true;
+      enterBtn.title = "请等待网关就绪后再进入";
+    }
+    return;
+  }
+
+  setStep("gateway", "done");
   pollTimer = setInterval(poll, POLL_MS);
   poll();
 }

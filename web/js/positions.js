@@ -105,6 +105,30 @@ export function matchPosQuery(p, query) {
   return terms.some((term) => sym.includes(term) || prod.includes(term) || name.includes(term));
 }
 
+export function filterComboPositions(list) {
+  let rows = [...(list || [])];
+  const type = store.tradeComboType || "all";
+  const query = store.tradeComboQuery || "";
+  if (type === "long") rows = rows.filter(isLong);
+  else if (type === "short") rows = rows.filter((p) => !isLong(p));
+  if (query) rows = rows.filter((p) => matchPosQuery(p, query));
+  return rows;
+}
+
+export function comboFormulaText(comboId) {
+  const combo = loadCombos().find((c) => c.id === comboId);
+  if (!combo || !combo.legs.length) return "—";
+  return combo.legs.map((leg) => {
+    const dir = String(leg.direction || "").includes("Long") || leg.direction === "0" ? "买" : "卖";
+    return `${dir}${leg.symbol}×${leg.ratio || 1}`;
+  }).join(" + ");
+}
+
+export function selectedComboPositions(account) {
+  const keys = new Set(store.tradePosSelected || []);
+  return filterComboPositions(comboPositionRows(account)).filter((p) => keys.has(positionKey(p)));
+}
+
 export function filterPositions(list) {
   let rows = [...(list || [])];
   const type = store.tradePosType || "all";
@@ -167,10 +191,11 @@ export function saveCombos(list) {
   localStorage.setItem(COMBO_KEY, JSON.stringify(list));
 }
 
-export function addPositionsToCombo(comboName, positions) {
+export function addPositionsToCombo(comboName, positions, { ratio = 1 } = {}) {
   const name = String(comboName || "").trim();
-  if (!name) return { ok: false, msg: "请输入组合名称" };
+  if (!name) return { ok: false, msg: "请输入用户描述" };
   if (!positions.length) return { ok: false, msg: "请先勾选持仓" };
+  const legRatio = Math.max(1, parseInt(String(ratio), 10) || 1);
   const combos = loadCombos();
   let combo = combos.find((c) => c.name === name);
   if (!combo) {
@@ -178,11 +203,17 @@ export function addPositionsToCombo(comboName, positions) {
     combos.push(combo);
   }
   positions.forEach((p) => {
-    const leg = { symbol: p.symbol, direction: p.direction, ratio: 1 };
+    const leg = { symbol: p.symbol, direction: p.direction, ratio: legRatio };
     const exists = combo.legs.some(
       (l) => l.symbol === leg.symbol && l.direction === leg.direction,
     );
     if (!exists) combo.legs.push(leg);
+    else {
+      const hit = combo.legs.find(
+        (l) => l.symbol === leg.symbol && l.direction === leg.direction,
+      );
+      if (hit) hit.ratio = legRatio;
+    }
   });
   saveCombos(combos);
   return { ok: true, msg: `已加入组合「${name}」`, combos };

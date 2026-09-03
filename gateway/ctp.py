@@ -214,7 +214,8 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
             return
         self._gw.emit({"type": "login", "account": self._gw.name, "status": "ok", "msg": "登录成功"})
         self._confirm_settlement()
-        self._gw.after_login()
+        # 结算确认回调里再查资金；若前置不回调，4 秒后兜底刷新
+        self._gw._schedule_post_login_refresh()
 
     def _confirm_settlement(self):
         """CTP 登录后需确认结算单，否则资金/持仓查询经常为空。"""
@@ -233,14 +234,27 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
                 "account": self._gw.name,
                 "msg": f"结算确认失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})",
             })
+            return
+        if bIsLast:
+            self._gw.after_login()
 
     # ---- 资金 ----
     def OnRspQryTradingAccount(self, pAccount, pRspInfo, nRequestID, bIsLast):
+        if pRspInfo and pRspInfo.ErrorID != 0:
+            self._gw.emit({
+                "type": "error",
+                "account": self._gw.name,
+                "msg": f"资金查询失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})",
+            })
+            return
         if pAccount is None:
             return
+        bal = float(getattr(pAccount, "Balance", 0) or 0)
+        self._gw._mark_balance_received(bal > 0 or bal == 0)
         self._gw.emit({
             "type": "balance",
             "account": self._gw.name,
+            "account_id": self._gw.user_id,
             "balance": pAccount.Balance,
             "available": pAccount.Available,
             "margin": pAccount.CurrMargin,
@@ -393,25 +407,52 @@ class CtpGateway:
         self.md_symbols = list(DEFAULT_SYMBOLS)
         self.md_logged_in = False
         self._req_id = 0
+        self._post_login_refresh = False
+        self._balance_received = False
+        self._refresh_fallback_timer = None
 
     def _next_req_id(self):
         self._req_id += 1
         return self._req_id
 
+    def _mark_balance_received(self, ok: bool = True) -> None:
+        if ok:
+            self._balance_received = True
+
+    def _schedule_post_login_refresh(self) -> None:
+        if self._refresh_fallback_timer is not None:
+            self._refresh_fallback_timer.cancel()
+        self._refresh_fallback_timer = threading.Timer(4.0, self.after_login)
+        self._refresh_fallback_timer.daemon = True
+        self._refresh_fallback_timer.start()
+
     def refresh_all(self):
         """顺序刷新资金/持仓/委托（CTP 不宜并发查询）。"""
         def _chain():
             import time
-            # 登录瞬间查询经常返回空；等结算确认落地后再查
-            time.sleep(1.2)
-            self.query_balance()
-            time.sleep(0.8)
+            self._balance_received = False
+            for attempt in range(6):
+                self.query_balance()
+                time.sleep(1.5)
+                if self._balance_received:
+                    break
+            time.sleep(0.6)
             self.query_positions()
             time.sleep(0.8)
             self.query_orders()
             time.sleep(0.8)
             self.query_trades()
         threading.Thread(target=_chain, daemon=True).start()
+
+    def after_login(self):
+        if self._post_login_refresh:
+            self.refresh_all()
+            return
+        self._post_login_refresh = True
+        if self._refresh_fallback_timer is not None:
+            self._refresh_fallback_timer.cancel()
+            self._refresh_fallback_timer = None
+        self.refresh_all()
 
     def connect(self):
         """建立交易 + 行情连接（各自带线程，不阻塞）。"""
@@ -426,9 +467,6 @@ class CtpGateway:
         self.md = self.md_spi._api
         # 防止 CTP 回调时 SPI 被 GC 回收
         self._spi_refs = [self.trader_spi, self.md_spi]
-
-    def after_login(self):
-        self.refresh_all()
 
     def query_balance(self):
         if self.trader:

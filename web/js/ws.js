@@ -7,13 +7,69 @@ import { getWatchlistCodes } from "./symbols.js";
 
 loadTicksFromStorage();
 
+function touchAccountLink(account, status) {
+  if (!account) return;
+  const now = Date.now();
+  const ok = status === "ok" || status === "md_ok";
+  if (!store.accountLinkAt[account]) store.accountLinkAt[account] = { trade: null, md: null };
+  const slot = status === "md_ok" ? "md" : "trade";
+  store.accountLinkAt[account][slot] = { at: now, ok };
+}
+
 let ws = null;
 let retryTimer = null;
+let balancePollTimer = null;
 let reconnectDelay = 3000;
 const RECONNECT_BASE = 3000;
 const RECONNECT_MAX = 15000;
 
+function stopBalancePolling() {
+  clearInterval(balancePollTimer);
+  balancePollTimer = null;
+}
+
+function needsBalanceSync() {
+  return store.accounts.some((acc) => {
+    const login = store.login[acc];
+    return (login === "ok" || login === "md_ok") && !store.balances[acc];
+  });
+}
+
+function ensureBalancePolling() {
+  if (balancePollTimer || !needsBalanceSync()) return;
+  let attempts = 0;
+  const tick = () => {
+    if (store.conn !== "open" || !needsBalanceSync()) {
+      stopBalancePolling();
+      return;
+    }
+    attempts += 1;
+    send({ cmd: "query" });
+    if (attempts >= 8) stopBalancePolling();
+  };
+  tick();
+  balancePollTimer = setInterval(tick, 2500);
+}
+
+function teardownSocket() {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  stopBalancePolling();
+  if (!ws) return;
+  ws.onopen = null;
+  ws.onmessage = null;
+  ws.onerror = null;
+  ws.onclose = null;
+  try {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(1000, "page refresh");
+    }
+  } catch (_) { /* ignore */ }
+  ws = null;
+}
+
 export function connect() {
+  teardownSocket();
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${location.host}/ws`;
   store.conn = "connecting";
@@ -29,6 +85,7 @@ export function connect() {
   ws.onopen = () => {
     const reconnected = store.wasConnected;
     store.conn = "open";
+    store.gatewayLinkAt = Date.now();
     store.reconnectAttempt = 0;
     reconnectDelay = RECONNECT_BASE;
     store.wasConnected = true;
@@ -36,6 +93,7 @@ export function connect() {
     send({ cmd: "status" });
     send({ cmd: "query" });
     send({ cmd: "subscribe", symbols: getWatchlistCodes() });
+    ensureBalancePolling();
   };
 
   ws.onmessage = (e) => {
@@ -98,6 +156,9 @@ function handle(msg) {
           const st = data.last_states[acc] || {};
           const login = st.login;
           store.login[acc] = (login === "md_ok" && st.balance) ? "ok" : (login || null);
+          if (store.login[acc] === "ok" || store.login[acc] === "md_ok") {
+            touchAccountLink(acc, store.login[acc]);
+          }
           if (st.balance) store.balances[acc] = st.balance;
           if (st.positions && st.positions.length) store.positions[acc] = st.positions;
           if (st.trades && st.trades.length) store.trades[acc] = st.trades;
@@ -107,6 +168,7 @@ function handle(msg) {
         }
       }
       emit({ type: "system", data });
+      ensureBalancePolling();
     }
     return;
   }
@@ -114,16 +176,16 @@ function handle(msg) {
   // account 相关的实时事件
   if (type === "login") {
     store.login[account] = mergeLoginStatus(store.login[account], msg.status);
+    touchAccountLink(account, msg.status);
     emit({ type: "login", account, status: store.login[account], msg: msg.msg });
     if (msg.status === "ok" && !store.balances[account]) {
-      setTimeout(() => {
-        if (!store.balances[account]) send({ cmd: "query" });
-      }, 1800);
+      ensureBalancePolling();
     }
     return;
   }
   if (type === "balance") {
     store.balances[account] = msg;
+    if (!needsBalanceSync()) stopBalancePolling();
     emit({ type: "balance", account });
     return;
   }
@@ -169,6 +231,17 @@ function handle(msg) {
     return;
   }
 }
+
+/** 刷新 WebSocket（F5 / 刷新按钮用，不整页 reload） */
+export function reconnect() {
+  teardownSocket();
+  store.conn = "closed";
+  connect();
+}
+
+window.addEventListener("beforeunload", () => {
+  teardownSocket();
+});
 
 export function send(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) {

@@ -64,6 +64,7 @@ def _loading_url() -> str:
 
 def start_gateway() -> subprocess.Popen[bytes]:
     from .logging import log_path, rotate_if_needed
+    from .win_job import assign_kill_on_job_close
 
     rotate_if_needed(log_path())
     env = os.environ.copy()
@@ -82,7 +83,9 @@ def start_gateway() -> subprocess.Popen[bytes]:
     }
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    return subprocess.Popen(_gateway_cmd(), **kwargs)
+    proc = subprocess.Popen(_gateway_cmd(), **kwargs)
+    assign_kill_on_job_close(proc)
+    return proc
 
 
 def _find_listener_pid(port: int) -> int | None:
@@ -126,6 +129,47 @@ def _process_command_line(pid: int) -> str:
 def _is_our_gateway(pid: int) -> bool:
     cmd = _process_command_line(pid).lower()
     return "gateway.main" in cmd or "--gateway-internal" in cmd
+
+
+def shutdown_local_gateway(port: int) -> None:
+    """结束本机期界网关（子进程或端口监听进程）。"""
+    listener = _find_listener_pid(port)
+    if listener and _is_our_gateway(listener):
+        _kill_pid(listener)
+
+
+def _cleanup_zombie_gateway(host: str, port: int) -> bool:
+    """界面已关、仅网关残留时提示清理。返回 False 表示用户取消启动。"""
+    from .dialog import ask_yes_no
+    from .win_ui import main_window_exists
+
+    if not port_open(host, port):
+        return True
+    listener = _find_listener_pid(port)
+    if not listener or not _is_our_gateway(listener):
+        return True
+    if main_window_exists():
+        return True
+    restart = ask_yes_no(
+        "检测到期界后台仍在运行，但主窗口已关闭（残留进程）。\n\n"
+        "选择「是」：关闭残留后台并正常启动。\n"
+        "选择「否」：取消本次启动。",
+        "期界 · 残留进程",
+    )
+    if not restart:
+        return False
+    _kill_pid(listener)
+    time.sleep(1.0)
+    if port_open(host, port):
+        from .dialog import show_message
+
+        show_message(
+            f"残留进程未能完全关闭，端口 {port} 仍被占用。\n\n请手动结束进程 {listener} 后重试。",
+            "期界 · 残留进程",
+            error=True,
+        )
+        return False
+    return True
 
 
 def stop_gateway(proc: subprocess.Popen[bytes], *, port: int | None = None) -> None:
@@ -190,7 +234,7 @@ def _resolve_port_conflict(host: str, port: int) -> str:
     restart = ask_yes_no(
         f"检测到本机已有期界网关在运行（端口 {port}，进程 {listener}）。\n\n"
         "选择「是」：关闭旧网关并重新启动（推荐）。\n"
-        "选择「否」：连接现有网关（点 × 只会隐藏到托盘；须在托盘右键「退出」才会关网关）。",
+        "选择「否」：连接现有网关（退出期界时会一并关闭网关）。",
         "期界 · 端口占用",
     )
     if restart:
@@ -273,6 +317,9 @@ def run_desktop() -> int:
     runtime.host = host
     runtime.port = port
 
+    if not _cleanup_zombie_gateway(host, port):
+        return 1
+
     if port_open(host, port):
         action = _resolve_port_conflict(host, port)
         if action == "abort":
@@ -285,6 +332,20 @@ def run_desktop() -> int:
         runtime.spawned = True
 
     api = DesktopApi()
+
+    def reload_gateway_after_config_save() -> None:
+        if runtime.spawned and runtime.gateway_proc is not None:
+            stop_gateway(runtime.gateway_proc, port=port)
+        else:
+            listener = _find_listener_pid(port)
+            if listener and _is_our_gateway(listener):
+                _kill_pid(listener)
+                time.sleep(1.0)
+        runtime.gateway_proc = start_gateway()
+        runtime.spawned = True
+        if not wait_for_port(host, port, 90.0):
+            raise OSError(f"网关重启后端口 {port} 未就绪")
+
     window = webview.create_window(
         "期界 · 期货交易终端",
         _loading_url(),
@@ -294,7 +355,12 @@ def run_desktop() -> int:
         js_api=api,
         confirm_close=False,
     )
-    api.bind(window, main_url, quit_callback=runtime.request_quit)
+    api.bind(
+        window,
+        main_url,
+        quit_callback=runtime.request_quit,
+        reload_gateway=reload_gateway_after_config_save,
+    )
     runtime.window = window
     runtime.api = api
     window.events.closing += runtime.on_closing
@@ -329,10 +395,8 @@ def run_desktop() -> int:
             runtime.tray.stop()
         if runtime.spawned and runtime.gateway_proc is not None:
             stop_gateway(runtime.gateway_proc, port=port)
-        elif runtime.quitting:
-            listener = _find_listener_pid(port)
-            if listener and _is_our_gateway(listener):
-                _kill_pid(listener)
+        if runtime.quitting:
+            shutdown_local_gateway(port)
 
     return 0
 

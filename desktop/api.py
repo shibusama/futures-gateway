@@ -13,11 +13,13 @@ class DesktopApi:
         self._window = None
         self._main_url = ""
         self._quit_callback = None
+        self._reload_gateway = None
 
-    def bind(self, window, main_url: str, *, quit_callback=None) -> None:
+    def bind(self, window, main_url: str, *, quit_callback=None, reload_gateway=None) -> None:
         self._window = window
         self._main_url = main_url
         self._quit_callback = quit_callback
+        self._reload_gateway = reload_gateway
 
     def enter_main(self) -> str:
         """登录成功后放大窗口；页面由 loading 自己跳转到交易界面。"""
@@ -81,7 +83,7 @@ class DesktopApi:
         if self._window is None or not self._main_url:
             return json.dumps({"ok": False, "msg": "无法返回"}, ensure_ascii=False)
         try:
-            self._navigate(self._main_url)
+            self._navigate(f"{self._main_url.rstrip('/')}/loading.html")
             return json.dumps({"ok": True}, ensure_ascii=False)
         except OSError as exc:
             return json.dumps({"ok": False, "msg": str(exc)}, ensure_ascii=False)
@@ -103,7 +105,15 @@ class DesktopApi:
         raw = api.save_config(payload_json)
         result = json.loads(raw)
         if result.get("ok") and self._window is not None and self._main_url:
-            self._navigate(self._main_url)
+            if self._reload_gateway is not None:
+                try:
+                    self._reload_gateway()
+                except OSError as exc:
+                    return json.dumps(
+                        {"ok": False, "msg": f"配置已写入，但网关重启失败：{exc}"},
+                        ensure_ascii=False,
+                    )
+            self._navigate(f"{self._main_url.rstrip('/')}/loading.html")
         return raw
 
     def check_for_updates(self) -> str:

@@ -1,12 +1,12 @@
 /**
- * ui_trade.js — 通用下单页（专业终端风格：资金条 + 自选/挂单 + 下单板 + 持仓报单）
+ * ui_trade.js — 通用下单页（专业终端风格：资金条 + 自选 + 下单板 + 持仓/成交）
  */
 import { store, getTick, tickIsLive, acctFloat, positionLivePnl, emit } from "./store.js";
-import { getWatchlist, symbolMeta, canCancelOrder, exchangeOf, addWatchlistSymbol, removeWatchlistSymbol } from "./symbols.js";
+import { getWatchlist, symbolMeta, exchangeOf, canCancelOrder } from "./symbols.js";
 import { orderActionLabel, positionFor } from "./order.js";
 import {
-  positionKey, posDirLabel, filterPositions, positionMarketValue, getManualSLTP,
-  groupPositionsByProduct, comboPositionRows, loadCombos,
+  positionKey, posDirLabel, filterPositions, filterComboPositions, positionMarketValue, getManualSLTP,
+  groupPositionsByProduct, comboPositionRows, loadCombos, comboFormulaText,
   tradeStatsByProduct, filterTradeStats,
 } from "./positions.js";
 
@@ -23,16 +23,6 @@ function currentSymbol() {
   return symbolMeta(store.sel) || getWatchlist()[0] || symbolMeta("rb2610");
 }
 
-function orderStatus(o) {
-  switch (o.status) {
-    case "0": return "全部成交";
-    case "1": return "部分成交";
-    case "3": return "未成交";
-    case "4": return "已撤销";
-    default: return o.status_msg || o.status;
-  }
-}
-
 const EXCHANGE_NAMES = {
   SHFE: "上期所", DCE: "大商所", CZCE: "郑商所", CFFEX: "中金所", INE: "能源中心", GFEX: "广期所",
 };
@@ -45,11 +35,6 @@ function offsetLabel(offset) {
   if (offset === "0") return "开";
   if (offset === "1" || offset === "3" || offset === "4") return "平";
   return offset || "—";
-}
-
-function hedgeLabel(hedge) {
-  if (hedge === "3") return "套保";
-  return "投机";
 }
 
 function tradeTime(t) {
@@ -150,7 +135,7 @@ function updateStatsToolbar() {
 
 function updatePosToolbar() {
   const toolbar = document.getElementById("trade-pos-toolbar");
-  const show = store.tradeTab === "pos" || store.tradeTab === "combo";
+  const show = store.tradeTab === "pos";
   if (toolbar) toolbar.hidden = !show;
   document.querySelectorAll('input[name="trade-pos-mode"]').forEach((el) => {
     el.checked = el.value === (store.tradePosMode || "single");
@@ -167,8 +152,16 @@ function updatePosToolbar() {
     ratioSel.value = String(store.tradeCloseRatio || 100);
   }
   if (sltpChk) sltpChk.checked = !!store.tradeReadManualSLTP;
-  const addCombo = document.getElementById("trade-add-combo");
-  if (addCombo) addCombo.hidden = store.tradeTab !== "combo";
+}
+
+function updateComboToolbar() {
+  const toolbar = document.getElementById("trade-combo-toolbar");
+  const show = store.tradeTab === "combo";
+  if (toolbar) toolbar.hidden = !show;
+  const typeSel = document.getElementById("trade-combo-type");
+  const qInput = document.getElementById("trade-combo-query");
+  if (typeSel && typeSel.value !== (store.tradeComboType || "all")) typeSel.value = store.tradeComboType || "all";
+  if (qInput && qInput.value !== (store.tradeComboQuery || "")) qInput.value = store.tradeComboQuery || "";
 }
 
 function sltpCells(account, p) {
@@ -181,8 +174,17 @@ function sltpCells(account, p) {
     <td>${m.autoSL ? "是" : "否"}</td><td>${m.autoTP ? "是" : "否"}</td><td>${m.triggerVol ?? "—"}</td>`;
 }
 
+function connHintMsg() {
+  if (store.conn !== "open") return "网关未连接，请确认期界已启动（顶部应显示 CTP 已连接）";
+  const account = stateAccount();
+  const login = account ? store.login[account] : null;
+  if (!account || (login !== "ok" && login !== "md_ok")) return "请先在概览页连接 SimNow 账户";
+  return "";
+}
+
 function posEmptyMsg() {
-  if (store.conn !== "open") return "登录期货账户后可查看数据";
+  const hint = connHintMsg();
+  if (hint) return hint;
   return "暂无持仓";
 }
 
@@ -243,10 +245,6 @@ function fillEmptyTable(el, headHtml, colSpan, msg) {
   el.innerHTML = `${headHtml}<tr class="trade-empty-row"><td colspan="${colSpan}" class="empty">${msg}</td></tr></tbody></table>`;
 }
 
-function pendingOrders(account) {
-  return (store.orders[account] || []).filter((o) => canCancelOrder(o));
-}
-
 export function renderTrade() {
   const account = stateAccount();
   if (!account) {
@@ -255,9 +253,10 @@ export function renderTrade() {
   }
   renderTradeBar(account);
   renderTradeWatchlist();
+  renderTradeOrders(account);
   renderTradeTicket(account);
-  renderTradePending(account);
   renderTradeBottom(account);
+  renderTradeStatusBar(account);
 }
 
 export function selectTradeSymbol(code) {
@@ -269,9 +268,10 @@ export function selectTradeSymbol(code) {
 export function refreshTradeLive() {
   patchTradeWatchlistQuotes();
   renderTradeTicket(stateAccount());
+  renderTradeStatusBar(stateAccount());
   const account = stateAccount();
   if (account) {
-    renderTradePending(account);
+    renderTradeOrders(account);
     if (store.tradeTab === "pos") renderTradePositions(account);
     else if (store.tradeTab === "combo") renderTradeComboPositions(account);
     else if (store.tradeTab === "fills") renderTradeFills(account);
@@ -301,65 +301,300 @@ function renderTradeBar(account) {
     </tr>` : `<tr><td colspan="7" class="empty">等待资金回报…</td></tr>`;
 }
 
-function quoteBits(s) {
-  const t = getTick(s.code);
-  const p = t?.price > 0 ? t.price : 0;
-  const pre = t?.pre_close;
-  let pcText = p ? "0.00%" : "—";
-  let pcCls = "";
-  if (p && pre && pre > 0) {
-    const pc = ((p - pre) / pre) * 100;
-    pcText = (pc >= 0 ? "+" : "") + pc.toFixed(2) + "%";
-    pcCls = cls(pc);
+function acctPositionFloat(account) {
+  const pos = store.positions[account] || [];
+  let n = 0;
+  pos.forEach((p) => { n += positionLivePnl(p); });
+  return n;
+}
+
+function fmtStatusMoney(v, d = 2) {
+  if (v == null || Number.isNaN(v)) return "—";
+  return Number(v).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function fmtLinkClock(ms) {
+  if (!ms) return "";
+  const d = new Date(ms);
+  return d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function setStatusVal(id, text, tone) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `trade-st-val${tone ? ` ${tone}` : ""}`;
+}
+
+export function renderTradeStatusBar(account) {
+  const clock = document.getElementById("trade-status-clock");
+  if (clock) {
+    clock.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
   }
-  return { p, pcText, pcCls, stale: !!(p && !tickIsLive(s.code)) };
+  const b = store.balances[account];
+  if (!b) {
+    setStatusVal("trade-st-equity", "—");
+    setStatusVal("trade-st-close", "—");
+    setStatusVal("trade-st-pos", "—");
+    setStatusVal("trade-st-avail", "—");
+  } else {
+    const fpnl = acctFloat(account);
+    const staleFloat = (b.position_profit || 0) + (b.close_profit || 0);
+    const floatDelta = fpnl - staleFloat;
+    const posFloat = acctPositionFloat(account);
+    const posStale = b.position_profit || 0;
+    const equity = b.balance + floatDelta;
+    const avail = (b.available || 0) + (posFloat - posStale);
+    const closePnl = b.close_profit || 0;
+    setStatusVal("trade-st-equity", fmtStatusMoney(equity));
+    setStatusVal("trade-st-close", fmtStatusMoney(closePnl), cls(closePnl));
+    setStatusVal("trade-st-pos", fmtStatusMoney(posFloat), cls(posFloat));
+    setStatusVal("trade-st-avail", fmtStatusMoney(avail));
+  }
+  const links = document.getElementById("trade-status-links");
+  if (!links) return;
+  const stars = store.accounts.some((a) => store.login[a] === "ok" || store.login[a] === "md_ok")
+    ? "<span class=\"trade-status-stars\" aria-hidden=\"true\">★★</span>" : "";
+  const chips = [];
+  if (store.gatewayLinkAt) {
+    const gwOk = store.conn === "open";
+    chips.push(`<span class="trade-status-link ${gwOk ? "up" : "down"}">${fmtLinkClock(store.gatewayLinkAt)}</span>`);
+  }
+  store.accounts.forEach((acc) => {
+    const link = store.accountLinkAt[acc] || {};
+    if (link.trade?.at) {
+      chips.push(`<span class="trade-status-link ${link.trade.ok ? "up" : "down"}">${fmtLinkClock(link.trade.at)}</span>`);
+    }
+    if (link.md?.at) {
+      chips.push(`<span class="trade-status-link ${link.md.ok ? "up" : "down"}">${fmtLinkClock(link.md.at)}</span>`);
+    }
+  });
+  links.innerHTML = stars + chips.join("");
+}
+
+function quoteRowBits(code, dec) {
+  const tick = getTick(code);
+  const price = tick?.price > 0 ? tick.price : null;
+  const bid = tick?.bid1 > 0 ? tick.bid1 : null;
+  const ask = tick?.ask1 > 0 ? tick.ask1 : null;
+  const bidv = tick?.bidv1 > 0 ? tick.bidv1 : null;
+  const askv = tick?.askv1 > 0 ? tick.askv1 : null;
+  const chg = price && tick?.pre_close ? price - tick.pre_close : 0;
+  return { price, bid, ask, bidv, askv, chgCls: cls(chg), stale: !!(price && !tickIsLive(code)) };
+}
+
+function trendSparkline(code) {
+  let bars = store.barHistory[`${code}_1d`];
+  let closes = bars?.length ? bars.slice(-2).map((b) => b.c) : [];
+  if (closes.length < 2) {
+    bars = store.barHistory[`${code}_5m`];
+    if (bars?.length >= 2) closes = bars.slice(-48).map((b) => b.c);
+  }
+  if (closes.length < 2) return '<span class="trend-empty">—</span>';
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const span = max - min || 1;
+  const w = 56;
+  const h = 18;
+  const pts = closes.map((c, i) => {
+    const x = (i / (closes.length - 1)) * w;
+    const y = h - ((c - min) / span) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const up = closes[closes.length - 1] >= closes[0];
+  return `<svg class="trend-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="1.5"/></svg>`;
+}
+
+function tradeQuoteRowHtml(s, idx) {
+  const q = quoteRowBits(s.code, s.dec);
+  const active = store.sel === s.code;
+  const canRemove = getWatchlist().length > 1;
+  return `<tr class="trade-quote-row${active ? " active" : ""}${q.stale ? " stale" : ""}" data-code="${s.code}">
+    <td class="col-no tab">${idx + 1}</td>
+    <td><span class="quote-code">${s.code}</span>${canRemove ? `<button type="button" class="quote-remove" data-remove="${s.code}" title="移除">×</button>` : ""}</td>
+    <td>${s.name}</td>
+    <td class="col-trend">${trendSparkline(s.code)}</td>
+    <td class="tab ${q.chgCls}">${q.price != null ? fmt(q.price, s.dec) : "—"}</td>
+    <td class="tab down">${q.bid != null ? fmt(q.bid, s.dec) : "—"}</td>
+    <td class="tab">${q.bidv ?? "—"}</td>
+    <td class="tab up">${q.ask != null ? fmt(q.ask, s.dec) : "—"}</td>
+    <td class="tab">${q.askv ?? "—"}</td>
+  </tr>`;
 }
 
 function patchTradeWatchlistQuotes() {
   const root = document.getElementById("trade-watchlist");
   if (!root) return;
-  getWatchlist().forEach((s) => {
-    const row = root.querySelector(`.wl-row[data-code="${s.code}"]`);
+  getWatchlist().forEach((s, idx) => {
+    const row = root.querySelector(`.trade-quote-row[data-code="${s.code}"]`);
     if (!row) return;
-    const item = row.closest(".wl-item");
-    const tabs = row.querySelectorAll(".tab");
-    const q = quoteBits(s);
-    if (tabs[0]) tabs[0].textContent = q.p ? fmt(q.p, s.dec) : "—";
-    if (tabs[1]) {
-      tabs[1].textContent = q.pcText;
-      tabs[1].className = `right tab ${q.pcCls}`;
+    const q = quoteRowBits(s.code, s.dec);
+    const cells = row.querySelectorAll("td");
+    if (cells[0]) cells[0].textContent = String(idx + 1);
+    if (cells[3]) cells[3].innerHTML = trendSparkline(s.code);
+    if (cells[4]) {
+      cells[4].textContent = q.price != null ? fmt(q.price, s.dec) : "—";
+      cells[4].className = `tab ${q.chgCls}`;
     }
-    if (item) {
-      item.classList.toggle("active", s.code === store.sel);
-      item.classList.toggle("stale", q.stale);
-    }
+    if (cells[5]) cells[5].textContent = q.bid != null ? fmt(q.bid, s.dec) : "—";
+    if (cells[6]) cells[6].textContent = q.bidv ?? "—";
+    if (cells[7]) cells[7].textContent = q.ask != null ? fmt(q.ask, s.dec) : "—";
+    if (cells[8]) cells[8].textContent = q.askv ?? "—";
+    row.classList.toggle("active", s.code === store.sel);
+    row.classList.toggle("stale", q.stale);
   });
 }
 
 function renderTradeWatchlist() {
   const symbols = getWatchlist();
+  const emptyEl = document.getElementById("trade-quote-empty");
   if (!symbols.some((s) => s.code === store.sel)) {
     store.sel = symbols[0]?.code || store.sel;
   }
   const root = document.getElementById("trade-watchlist");
+  if (emptyEl) emptyEl.hidden = symbols.length > 0;
   const key = symbols.map((s) => s.code).join(",");
-  if (root.dataset.codes === key && root.querySelectorAll(".wl-row").length === symbols.length) {
+  if (root.dataset.codes === key && root.querySelectorAll(".trade-quote-row").length === symbols.length) {
     patchTradeWatchlistQuotes();
     return;
   }
   root.dataset.codes = key;
-  const canRemove = symbols.length > 1;
-  root.innerHTML = symbols.map((s) => {
-    const q = quoteBits(s);
-    return `<div class="wl-item${store.sel === s.code ? " active" : ""}${q.stale ? " stale" : ""}">
-      <button type="button" class="wl-row" data-code="${s.code}">
-        <span class="wl-name">${s.name}<small>${s.code}</small></span>
-        <span class="right tab">${q.p ? fmt(q.p, s.dec) : "—"}</span>
-        <span class="right tab ${q.pcCls}">${q.pcText}</span>
-      </button>
-      ${canRemove ? `<button type="button" class="wl-remove" data-remove="${s.code}" title="移除">×</button>` : ""}
-    </div>`;
-  }).join("");
+  root.innerHTML = symbols.map((s, i) => tradeQuoteRowHtml(s, i)).join("");
+}
+
+function orderKey(o) {
+  return o.order_sys_id || `${o.symbol}_${o.order_ref || ""}_${o.time || ""}`;
+}
+
+function orderStatusLabel(o) {
+  switch (o.status) {
+    case "0": return "全部成交";
+    case "1": return "部分成交";
+    case "3": return "未成交";
+    case "4": return "已撤销";
+    case "5": return "错单";
+    default: return o.status_msg || o.status || "—";
+  }
+}
+
+function hedgeLabel(o) {
+  if (o.hedge === "1") return "投机";
+  if (o.hedge === "3") return "套保";
+  if (o.hedge === "2") return "套利";
+  return "投机";
+}
+
+function orderVolumeCells(o) {
+  const total = Number(o.volume_total) || 0;
+  const traded = Number(o.volume_traded) || 0;
+  const pending = canCancelOrder(o) ? Math.max(0, total - traded) : 0;
+  const canceled = (o.status === "4" || o.status === "5") ? Math.max(0, total - traded) : 0;
+  return { total, traded, pending, canceled };
+}
+
+function matchOrderQuery(o, query) {
+  const q = String(query || "").trim();
+  if (!q) return true;
+  const terms = q.split(/[,，\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const sym = String(o.symbol || "").toLowerCase();
+  const meta = symbolMeta(o.symbol);
+  const name = (meta?.name || "").toLowerCase();
+  const prod = sym.replace(/\d+$/, "");
+  return terms.some((term) => sym.includes(term) || prod.includes(term) || name.includes(term));
+}
+
+function filterTradeOrders(account) {
+  let rows = [...(store.orders[account] || [])];
+  const scope = store.tradeOrderScope || "all";
+  const type = store.tradeOrderType || "all";
+  const ex = store.tradeOrderExchange || "all";
+  const query = store.tradeOrderQuery || "";
+  if (scope === "working") rows = rows.filter((o) => canCancelOrder(o));
+  else if (scope === "done") rows = rows.filter((o) => o.status === "0" || o.status === "1");
+  else if (scope === "canceled") rows = rows.filter((o) => o.status === "4" || o.status === "5");
+  if (type === "buy") rows = rows.filter((o) => o.direction === "0");
+  else if (type === "sell") rows = rows.filter((o) => o.direction === "1");
+  if (ex !== "all") rows = rows.filter((o) => (o.exchange || exchangeOf(o.symbol)) === ex);
+  if (query) rows = rows.filter((o) => matchOrderQuery(o, query));
+  return rows;
+}
+
+function updateOrderToolbar() {
+  const scopeSel = document.getElementById("trade-order-scope");
+  const typeSel = document.getElementById("trade-order-type");
+  const exSel = document.getElementById("trade-order-exchange");
+  const srcSel = document.getElementById("trade-order-source");
+  const qInput = document.getElementById("trade-order-query");
+  if (scopeSel && scopeSel.value !== (store.tradeOrderScope || "all")) scopeSel.value = store.tradeOrderScope || "all";
+  if (typeSel && typeSel.value !== (store.tradeOrderType || "all")) typeSel.value = store.tradeOrderType || "all";
+  if (exSel && exSel.value !== (store.tradeOrderExchange || "all")) exSel.value = store.tradeOrderExchange || "all";
+  if (srcSel && srcSel.value !== (store.tradeOrderSource || "all")) srcSel.value = store.tradeOrderSource || "all";
+  if (qInput && qInput.value !== (store.tradeOrderQuery || "")) qInput.value = store.tradeOrderQuery || "";
+}
+
+function orderEmptyMsg() {
+  const hint = connHintMsg();
+  if (hint) return hint;
+  return "暂无委托";
+}
+
+function tradeOrderRowHtml(o, account, idx) {
+  const key = orderKey(o);
+  const selected = (store.tradeOrderSelected || []).includes(key);
+  const meta = symbolMeta(o.symbol);
+  const dec = meta?.dec ?? 0;
+  const dir = o.direction === "0" ? "买" : "卖";
+  const off = o.offset === "0" ? "开" : "平";
+  const vols = orderVolumeCells(o);
+  const avgPx = vols.traded > 0 ? (Number(o.traded_price) || Number(o.limit_price) || 0) : 0;
+  return `<tr class="trade-order-row${selected ? " selected" : ""}" data-order-key="${key}"
+    data-cancel-order="${o.order_sys_id || ""}" data-symbol="${o.symbol}" data-exchange="${o.exchange || exchangeOf(o.symbol)}">
+    <td class="col-no tab">${idx + 1}</td>
+    <td>${account}</td>
+    <td>${o.symbol}</td>
+    <td class="${dir === "买" ? "up" : "down"}">${dir}</td>
+    <td>${off}</td>
+    <td><span class="badge ${o.status === "0" ? "b-ok" : canCancelOrder(o) ? "b-wait" : "b-off"}">${orderStatusLabel(o)}</span></td>
+    <td class="tab">${fmt(o.limit_price || 0, dec)}</td>
+    <td class="tab">${avgPx ? fmt(avgPx, dec) : "—"}</td>
+    <td>${vols.total}</td>
+    <td>${vols.pending || "—"}</td>
+    <td>${vols.traded || "—"}</td>
+    <td>${vols.canceled || "—"}</td>
+    <td>${hedgeLabel(o)}</td>
+  </tr>`;
+}
+
+export function renderTradeOrders(account) {
+  updateOrderToolbar();
+  const emptyEl = document.getElementById("trade-order-empty");
+  const root = document.getElementById("trade-order-body");
+  if (!root) return;
+  if ((store.tradeOrderTab || "ord") !== "ord") {
+    root.innerHTML = "";
+    if (emptyEl) {
+      emptyEl.hidden = false;
+      emptyEl.textContent = "该列表功能开发中";
+    }
+    return;
+  }
+  const rows = filterTradeOrders(account);
+  if (emptyEl) emptyEl.hidden = rows.length > 0;
+  if (!rows.length) {
+    root.innerHTML = "";
+    if (emptyEl) emptyEl.textContent = orderEmptyMsg();
+    return;
+  }
+  root.innerHTML = rows.map((o, i) => tradeOrderRowHtml(o, account, i)).join("");
+}
+
+export function selectedTradeOrders(account) {
+  const keys = new Set(store.tradeOrderSelected || []);
+  return filterTradeOrders(account).filter((o) => keys.has(orderKey(o)));
+}
+
+export function cancelableTradeOrders(account) {
+  return (store.orders[account] || []).filter((o) => canCancelOrder(o) && o.order_sys_id);
 }
 
 function renderTradeTicket(account) {
@@ -407,37 +642,10 @@ function renderTradeTicket(account) {
   }
 }
 
-function renderTradePending(account) {
-  const el = document.getElementById("trade-pending");
-  const ords = pendingOrders(account);
-  document.getElementById("trade-pending-count").textContent = ords.length;
-  if (!ords.length) {
-    el.innerHTML = '<div class="empty trade-empty">暂无未成交委托</div>';
-    return;
-  }
-  let html = `<table><thead><tr>
-    <th>合约</th><th>方向</th><th>开平</th><th>价格</th><th>数量</th><th>状态</th><th></th>
-  </tr></thead><tbody>`;
-  ords.forEach((o) => {
-    const dir = o.direction === "0" ? "买" : "卖";
-    const off = o.offset === "0" ? "开" : "平";
-    html += `<tr>
-      <td>${o.symbol}</td>
-      <td class="${dir === "买" ? "up" : "down"}">${dir}</td>
-      <td>${off}</td>
-      <td class="tab">${fmt(o.limit_price, 0)}</td>
-      <td>${o.volume_total - (o.volume_traded || 0)}</td>
-      <td><span class="badge b-wait">${orderStatus(o)}</span></td>
-      <td><button type="button" class="btn-cancel" data-cancel-order="${o.order_sys_id || ""}"
-        data-symbol="${o.symbol}" data-exchange="${o.exchange || exchangeOf(o.symbol)}">撤</button></td>
-    </tr>`;
-  });
-  el.innerHTML = html + "</tbody></table>";
-}
-
 function renderTradeBottom(account) {
   updateFillToolbar();
   updatePosToolbar();
+  updateComboToolbar();
   updateStatsToolbar();
   if (store.tradeTab === "ord") store.tradeTab = "pos";
   document.getElementById("trade-tab-pos").className = `bt${store.tradeTab === "pos" ? " active" : ""}`;
@@ -446,10 +654,9 @@ function renderTradeBottom(account) {
   document.getElementById("trade-tab-combo").className = `bt${store.tradeTab === "combo" ? " active" : ""}`;
   const pos = store.positions[account] || [];
   const fills = store.trades[account] || [];
-  const combos = loadCombos();
   document.getElementById("trade-tab-pos").textContent = `持仓列表 (${pos.length})`;
   document.getElementById("trade-tab-fills").textContent = `成交列表 (${fills.length})`;
-  document.getElementById("trade-tab-combo").textContent = `自组合持仓 (${combos.length})`;
+  document.getElementById("trade-tab-combo").textContent = "自组合持仓列表";
   if (store.tradeTab === "pos") renderTradePositions(account);
   else if (store.tradeTab === "combo") renderTradeComboPositions(account);
   else if (store.tradeTab === "fills") renderTradeFills(account);
@@ -544,36 +751,53 @@ function renderTradePosGroup(account, rows) {
   });
 }
 
+function comboEmptyMsg() {
+  const hint = connHintMsg();
+  if (hint) return hint;
+  if (!loadCombos().length) return "请在「持仓列表」勾选持仓后，点击「加入自组合」创建组合";
+  return "自组合暂无匹配持仓（组合内合约当前无持仓）";
+}
+
+const COMBO_TABLE_HEAD = `<table class="trade-combo-table"><thead><tr>
+  <th>用户描述</th><th>合约名</th><th>合约代码</th><th>买卖</th><th>份数</th><th>持仓手数</th>
+  <th>计算公式</th><th>持仓均价</th><th>持仓盈亏</th><th>浮动盈亏</th><th>开仓均价</th>
+</tr></thead><tbody>`;
+
+function comboRowHtml(p, account) {
+  const key = positionKey(p);
+  const selected = (store.tradePosSelected || []).includes(key);
+  const meta = symbolMeta(p.symbol);
+  const dec = meta?.dec ?? 0;
+  const dir = posDirLabel(p);
+  const floatPnl = positionLivePnl(p);
+  const posAvg = p.position_cost ? (p.position_cost / (p.volume || 1)) : (p.open_price || 0);
+  return `<tr class="trade-combo-row${selected ? " selected" : ""}" data-pos-key="${key}" data-pos-keys="${key}">
+    <td>${p.comboName || "—"}</td>
+    <td>${meta?.name || "—"}</td>
+    <td>${p.symbol}</td>
+    <td class="${dir === "买" ? "up" : "down"}">${dir}</td>
+    <td>${p.legRatio || 1}</td>
+    <td>${p.volume ?? 0}</td>
+    <td class="combo-formula">${comboFormulaText(p.comboId)}</td>
+    <td class="tab">${fmt(posAvg, dec)}</td>
+    <td class="tab ${cls(p.position_profit || 0)}">${fmt(p.position_profit || 0, 2)}</td>
+    <td class="tab ${cls(floatPnl)}">${fmt(floatPnl, 2)}</td>
+    <td class="tab">${fmt(p.open_price || 0, dec)}</td>
+  </tr>`;
+}
+
 function renderTradeComboPositions(account) {
   const el = document.getElementById("trade-tables");
-  let rows = comboPositionRows(account);
-  rows = filterPositions(rows);
+  const rows = filterComboPositions(comboPositionRows(account));
   if (!rows.length) {
-    renderPosTableFoot(null);
-    const hint = loadCombos().length
-      ? "自组合暂无匹配持仓（组合内合约当前无持仓）"
-      : "请勾选持仓后点击「加入自组合」创建组合";
-    el.innerHTML = `<div class="empty">${store.conn === "open" ? hint : "登录期货账户后可查看数据"}</div>`;
+    fillEmptyTable(el, COMBO_TABLE_HEAD, 11, comboEmptyMsg());
     return;
   }
-  let html = posTableHead("<th>组合名称</th>");
-  const totals = { volume: 0, margin: 0, float_pnl: 0, mktval: 0, pos_pnl: 0, close_pnl: 0 };
+  let html = COMBO_TABLE_HEAD;
   rows.forEach((p) => {
-    html += positionRowHtml(p, account, { comboName: p.comboName });
-    totals.volume += p.volume || 0;
-    totals.margin += p.margin || 0;
-    totals.float_pnl += positionLivePnl(p);
-    totals.mktval += positionMarketValue(p);
-    totals.pos_pnl += p.position_profit || 0;
-    totals.close_pnl += p.close_profit || 0;
+    html += comboRowHtml(p, account);
   });
   el.innerHTML = html + "</tbody></table>";
-  renderPosTableFoot({
-    volume: totals.volume,
-    margin: totals.margin,
-    float_pnl: totals.float_pnl,
-    mktval: totals.mktval,
-  });
 }
 
 function renderTradeFills(account) {
