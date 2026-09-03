@@ -28,6 +28,8 @@ def build_menu(runtime: "DesktopRuntime") -> list[Menu]:
                 MenuAction("导出诊断包", runtime.export_diagnostics),
                 MenuSeparator(),
                 MenuAction("账号配置", runtime.open_account_setup),
+                MenuSeparator(),
+                MenuAction("卸载…", runtime.uninstall_app),
             ],
         ),
     ]

@@ -32,6 +32,7 @@ a = Analysis(
         "desktop.setup",
         "desktop.single",
         "desktop.tray",
+        "desktop.uninstall",
         "desktop.update_progress",
         "desktop.updater",
         "tkinter",

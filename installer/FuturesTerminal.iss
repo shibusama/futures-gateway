@@ -43,6 +43,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 [Files]
 Source: "..\dist\FuturesTerminal\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config.json.example"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\uninstall.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; 不覆盖用户已有 config.json / flow
 Source: "..\config.json.example"; DestDir: "{app}"; DestName: "config.json"; Flags: onlyifdoesntexist uninsneveruninstall
 
@@ -50,6 +51,7 @@ Source: "..\config.json.example"; DestDir: "{app}"; DestName: "config.json"; Fla
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\账号配置"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup"
 Name: "{group}\检查更新"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--check-update"
+Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]

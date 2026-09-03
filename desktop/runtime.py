@@ -92,3 +92,8 @@ class DesktopRuntime:
     def open_account_setup(self) -> None:
         if self.api is not None:
             self.api.open_account_setup()
+
+    def uninstall_app(self) -> None:
+        from .uninstall import run_uninstall
+
+        run_uninstall(after_launch=self.request_quit)

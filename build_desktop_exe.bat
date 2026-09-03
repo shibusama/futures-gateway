@@ -77,6 +77,9 @@ if errorlevel 1 (
 if not exist "config.json" if exist "config.json.example" (
     copy /Y "config.json.example" "dist\FuturesTerminal\config.json.example" >nul
 )
+if exist "uninstall.bat" (
+    copy /Y "uninstall.bat" "dist\FuturesTerminal\uninstall.bat" >nul
+)
 
 echo.
 echo Done. Run:
