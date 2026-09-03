@@ -78,4 +78,8 @@ echo   git tag desktop-v!APP_VER!
 echo   git push origin desktop-v!APP_VER!
 echo   gh release create desktop-v!APP_VER! "%ZIP%" "dist\installer\FuturesTerminal-Setup-!APP_VER!.exe" --title "Desktop v!APP_VER!"
 echo.
+echo Publish to Aliyun OSS ^(国内加速, see docs/oss-release-setup.md^):
+echo   pip install oss2
+echo   python scripts/publish_oss_release.py --notes "更新说明"
+echo.
 pause

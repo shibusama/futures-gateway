@@ -38,7 +38,17 @@ class MdSpi(mdapi.CThostFtdcMdSpi):
     def __init__(self, gw):
         super().__init__()
         self._gw = gw
+        self._account = gw.name
+        self._emit = gw.emit
         self._api = None
+
+    def _safe_emit(self, event: dict) -> None:
+        emit = getattr(self, "_emit", None)
+        if emit is None:
+            gw = getattr(self, "_gw", None)
+            emit = gw.emit if gw is not None else None
+        if emit is not None:
+            emit(event)
 
     def create_api(self, flow_dir):
         os.makedirs(flow_dir, exist_ok=True)
@@ -48,19 +58,24 @@ class MdSpi(mdapi.CThostFtdcMdSpi):
         self._api.Init()
 
     def OnFrontConnected(self):
-        self._gw.emit({"type": "login", "account": self._gw.name, "status": "connecting", "msg": "行情前置已连接，登录中…"})
+        self._safe_emit({"type": "login", "account": self._account, "status": "connecting", "msg": "行情前置已连接，登录中…"})
         req = mdapi.CThostFtdcReqUserLoginField()
         self._api.ReqUserLogin(req, 0)
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         if pRspInfo and pRspInfo.ErrorID != 0:
-            self._gw.emit({"type": "login", "account": self._gw.name, "status": "fail", "msg": f"行情登录失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})"})
+            self._safe_emit({"type": "login", "account": self._account, "status": "fail", "msg": f"行情登录失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})"})
             return
-        self._gw.md_logged_in = True
-        self._gw.emit({"type": "login", "account": self._gw.name, "status": "md_ok", "msg": "行情连接就绪"})
-        self._gw._do_subscribe()
+        gw = getattr(self, "_gw", None)
+        if gw is not None:
+            gw.md_logged_in = True
+        self._safe_emit({"type": "login", "account": self._account, "status": "md_ok", "msg": "行情连接就绪"})
+        if gw is not None:
+            gw._do_subscribe()
 
     def OnRtnDepthMarketData(self, pDepthMarketData):
+        if not getattr(self, "_emit", None) and not getattr(self, "_gw", None):
+            return
         import time as _t
         # 组装时间戳（毫秒，用于前端 K 线聚合；优先用 CTP 行情时间）
         ts = None
@@ -97,7 +112,7 @@ class MdSpi(mdapi.CThostFtdcMdSpi):
 
         tick = {
             "type": "tick",
-            "account": self._gw.name,
+            "account": self._account,
             "symbol": pDepthMarketData.InstrumentID,
             "price": pDepthMarketData.LastPrice,
             "pre_close": clean_price(pDepthMarketData.PreClosePrice),
@@ -117,7 +132,7 @@ class MdSpi(mdapi.CThostFtdcMdSpi):
             "ask4": clean_price(pDepthMarketData.AskPrice4), "askv4": clean_vol(pDepthMarketData.AskVolume4),
             "ask5": clean_price(pDepthMarketData.AskPrice5), "askv5": clean_vol(pDepthMarketData.AskVolume5),
         }
-        self._gw.emit(tick)
+        self._safe_emit(tick)
 
     def OnRspSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
         if pRspInfo and pRspInfo.ErrorID != 0:
@@ -126,10 +141,10 @@ class MdSpi(mdapi.CThostFtdcMdSpi):
                 sym = pSpecificInstrument.InstrumentID
             except Exception:
                 pass
-            self._gw.emit({"type": "error", "account": self._gw.name, "msg": f"订阅行情失败 {sym}：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})"})
+            self._safe_emit({"type": "error", "account": self._account, "msg": f"订阅行情失败 {sym}：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})"})
 
     def OnFrontDisconnected(self, nReason):
-        self._gw.emit({"type": "login", "account": self._gw.name, "status": "disconnected", "msg": f"行情前置断开 ({nReason})"})
+        self._safe_emit({"type": "login", "account": self._account, "status": "disconnected", "msg": f"行情前置断开 ({nReason})"})
 
 
 class TraderSpi(tdapi.CThostFtdcTraderSpi):
@@ -138,7 +153,17 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
     def __init__(self, gw):
         super().__init__()
         self._gw = gw
+        self._account = gw.name
+        self._emit = gw.emit
         self._api = None
+
+    def _safe_emit(self, event: dict) -> None:
+        emit = getattr(self, "_emit", None)
+        if emit is None:
+            gw = getattr(self, "_gw", None)
+            emit = gw.emit if gw is not None else None
+        if emit is not None:
+            emit(event)
 
     def create_api(self, flow_dir):
         os.makedirs(flow_dir, exist_ok=True)
@@ -370,6 +395,8 @@ class CtpGateway:
         self.md_spi = MdSpi(self)
         self.md_spi.create_api(os.path.join(self.flow_dir, "md"))
         self.md = self.md_spi._api
+        # 防止 CTP 回调时 SPI 被 GC 回收
+        self._spi_refs = [self.trader_spi, self.md_spi]
 
     def after_login(self):
         self.refresh_all()
