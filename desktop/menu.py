@@ -15,6 +15,7 @@ def build_menu(runtime: "DesktopRuntime") -> list[Menu]:
         Menu(
             "文件",
             [
+                MenuAction("刷新页面", runtime.reload_page),
                 MenuAction("隐藏到托盘", runtime.hide_to_tray),
                 MenuSeparator(),
                 MenuAction("退出", runtime.request_quit),

@@ -273,6 +273,10 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
                 return
             # 可平数量 = 总持仓 - 冻结
             frozen = int(pPosition.LongFrozen if posi_dir == 2 else pPosition.ShortFrozen)
+            today_vol = int(pPosition.TodayPosition)
+            yd_vol = int(pPosition.YdPosition)
+            today_frozen = min(frozen, today_vol) if today_vol > 0 else 0
+            yd_frozen = max(0, frozen - today_frozen)
             avail = max(0, volume - frozen)
             position_cost = float(getattr(pPosition, "PositionCost", 0) or 0)
             open_cost = float(getattr(pPosition, "OpenCost", 0) or 0)
@@ -290,6 +294,9 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
                 "volume": volume,
                 "today_volume": int(pPosition.TodayPosition),
                 "yd_volume": int(pPosition.YdPosition),
+                "frozen": frozen,
+                "today_frozen": today_frozen,
+                "yd_frozen": yd_frozen,
                 "avail": avail,
                 "open_price": open_price,
                 "margin": float(pPosition.UseMargin),
@@ -326,17 +333,37 @@ class TraderSpi(tdapi.CThostFtdcTraderSpi):
         })
 
     def OnRtnTrade(self, pTrade):
+        self._emit_trade(pTrade)
+
+    def _emit_trade(self, pTrade):
         self._gw.emit({
             "type": "trade",
             "account": self._gw.name,
+            "trade_id": getattr(pTrade, "TradeID", ""),
             "order_sys_id": getattr(pTrade, "OrderSysID", ""),
             "symbol": pTrade.InstrumentID,
+            "exchange": getattr(pTrade, "ExchangeID", "") or CtpGateway._exchange_of(pTrade.InstrumentID),
             "direction": pTrade.Direction,
             "offset": getattr(pTrade, "OffsetFlag", ""),
+            "hedge": getattr(pTrade, "HedgeFlag", "1"),
             "price": pTrade.Price,
             "volume": pTrade.Volume,
+            "commission": getattr(pTrade, "Commission", 0),
+            "close_profit": getattr(pTrade, "CloseProfit", 0),
             "time": getattr(pTrade, "TradeTime", ""),
+            "date": getattr(pTrade, "TradeDate", ""),
         })
+
+    def OnRspQryTrade(self, pTrade, pRspInfo, nRequestID, bIsLast):
+        if pRspInfo and pRspInfo.ErrorID != 0:
+            self._gw.emit({
+                "type": "error",
+                "account": self._gw.name,
+                "msg": f"成交查询失败：{pRspInfo.ErrorMsg} ({pRspInfo.ErrorID})",
+            })
+            return
+        if pTrade is not None:
+            self._emit_trade(pTrade)
 
     def OnRspOrderInsert(self, pInputOrder, pRspInfo, nRequestID, bIsLast):
         if pRspInfo and pRspInfo.ErrorID != 0:
@@ -382,6 +409,8 @@ class CtpGateway:
             self.query_positions()
             time.sleep(0.8)
             self.query_orders()
+            time.sleep(0.8)
+            self.query_trades()
         threading.Thread(target=_chain, daemon=True).start()
 
     def connect(self):
@@ -422,6 +451,13 @@ class CtpGateway:
             req.InvestorID = self.user_id
             self.trader.ReqQryOrder(req, self._next_req_id())
 
+    def query_trades(self):
+        if self.trader:
+            req = tdapi.CThostFtdcQryTradeField()
+            req.BrokerID = self.broker_id
+            req.InvestorID = self.user_id
+            self.trader.ReqQryTrade(req, self._next_req_id())
+
     def subscribe(self, symbols):
         """订阅行情。任何时机调用都安全：
         - 若行情已登录，立即订阅；
@@ -449,7 +485,12 @@ class CtpGateway:
         f.InstrumentID = symbol
         f.ExchangeID = self._exchange_of(symbol)
         f.Direction = tdapi.THOST_FTDC_D_Buy if direction == "buy" else tdapi.THOST_FTDC_D_Sell
-        f.CombOffsetFlag = tdapi.THOST_FTDC_OF_Open if offset == "open" else tdapi.THOST_FTDC_OF_Close
+        f.CombOffsetFlag = {
+            "open": tdapi.THOST_FTDC_OF_Open,
+            "close": tdapi.THOST_FTDC_OF_Close,
+            "close_today": tdapi.THOST_FTDC_OF_CloseToday,
+            "close_yesterday": tdapi.THOST_FTDC_OF_CloseYesterday,
+        }.get(offset, tdapi.THOST_FTDC_OF_Close)
         f.CombHedgeFlag = tdapi.THOST_FTDC_HF_Speculation
         f.LimitPrice = price
         f.VolumeTotalOriginal = volume

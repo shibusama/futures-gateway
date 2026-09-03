@@ -11,10 +11,28 @@ from aiohttp import web
 from .config import load_config
 from .history import fetch_bars
 
-from app_paths import bundle_root
+from app_paths import bundle_root, is_frozen
 
 mimetypes.add_type("application/javascript", ".mjs")
 mimetypes.add_type("text/javascript", ".mjs")
+
+
+def _dev_mode() -> bool:
+    """开发/桌面调试时不缓存前端，改完代码刷新即可生效。"""
+    return os.environ.get("FUTURES_DESKTOP") == "1" or not is_frozen()
+
+
+@web.middleware
+async def dev_no_cache_middleware(request, handler):
+    response = await handler(request)
+    if not _dev_mode():
+        return response
+    path = request.path.lower()
+    if path == "/" or path.endswith((".js", ".mjs", ".css", ".html")):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 def web_dir() -> str:
@@ -28,7 +46,8 @@ WEB_DIR = web_dir()
 
 
 def build_app(mgr):
-    app = web.Application()
+    middlewares = [dev_no_cache_middleware] if _dev_mode() else []
+    app = web.Application(middlewares=middlewares)
     app["mgr"] = mgr
 
     # 静态前端

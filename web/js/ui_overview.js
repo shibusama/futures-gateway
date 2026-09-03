@@ -37,13 +37,13 @@ export function renderOverview() {
         <td class="tab">${fmt(b.available)}</td>
         <td class="tab ${cls(fpnl)}">${fpnl >= 0 ? "+" : ""}${fmt(fpnl)}</td>
         <td class="tab">${fmt(b.margin)}</td>
-        <td><button class="close-btn" data-view="${acc}">查看</button></td></tr>`;
+        <td><button class="close-btn" data-view="${acc}">下单</button></td></tr>`;
     } else {
       rows += `<tr class="row-click" data-acct="${acc}">
         <td>${acc}</td><td class="tab">—</td><td>SimNow</td>
         <td>${stBadge}</td>
         <td class="tab">—</td><td class="tab">—</td><td class="tab">—</td><td class="tab">—</td>
-        <td><button class="close-btn" data-view="${acc}">查看</button></td></tr>`;
+        <td><button class="close-btn" data-view="${acc}">下单</button></td></tr>`;
     }
   });
   document.getElementById("acct-list").innerHTML = rows;

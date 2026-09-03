@@ -70,6 +70,14 @@ class DesktopRuntime:
         except Exception:
             pass
 
+    def reload_page(self) -> None:
+        if self.window is None:
+            return
+        try:
+            self.window.evaluate_js("location.reload()")
+        except Exception:
+            pass
+
     def check_updates(self) -> None:
         try:
             from .updater import check_and_prompt

@@ -68,7 +68,10 @@ function handle(msg) {
 
   if (type === "system") {
     if (msg.cmd === "query_ok") {
-      for (const acc of store.accounts) store.positions[acc] = [];
+      for (const acc of store.accounts) {
+        store.positions[acc] = [];
+        store.trades[acc] = [];
+      }
       emit({ type: "system", data: msg });
       return;
     }
@@ -97,6 +100,7 @@ function handle(msg) {
           store.login[acc] = (login === "md_ok" && st.balance) ? "ok" : (login || null);
           if (st.balance) store.balances[acc] = st.balance;
           if (st.positions && st.positions.length) store.positions[acc] = st.positions;
+          if (st.trades && st.trades.length) store.trades[acc] = st.trades;
         }
         if (data.last_ticks) {
           Object.entries(data.last_ticks).forEach(([sym, tick]) => seedTick(sym, tick));
@@ -150,7 +154,13 @@ function handle(msg) {
   }
   if (type === "trade") {
     if (!store.trades[account]) store.trades[account] = [];
-    store.trades[account] = [msg, ...store.trades[account]].slice(0, 100);
+    const key = `${msg.trade_id || ""}|${msg.symbol}|${msg.time || ""}|${msg.volume || 0}`;
+    store.trades[account] = [
+      msg,
+      ...store.trades[account].filter(
+        (t) => `${t.trade_id || ""}|${t.symbol}|${t.time || ""}|${t.volume || 0}` !== key,
+      ),
+    ].slice(0, 500);
     emit({ type: "trade", account });
     return;
   }

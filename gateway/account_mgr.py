@@ -59,6 +59,16 @@ class AccountManager:
             if (event.get("volume") or 0) > 0:
                 lst.append(event)
             st["positions"] = lst
+        if event.get("type") == "trade":
+            st = self.last_states.setdefault(acc, {})
+            lst = st.setdefault("trades", [])
+            tid = str(event.get("trade_id") or "")
+            sym = str(event.get("symbol") or "")
+            ttime = str(event.get("time") or "")
+            key = f"{tid}|{sym}|{ttime}|{event.get('volume')}"
+            lst = [t for t in lst if f"{t.get('trade_id')}|{t.get('symbol')}|{t.get('time')}|{t.get('volume')}" != key]
+            lst.insert(0, event)
+            st["trades"] = lst[:500]
         if event.get("type") == "tick":
             sym = event.get("symbol")
             if sym:
@@ -151,6 +161,7 @@ class AccountManager:
         for name, gw in self.gateways.items():
             st = self.last_states.setdefault(name, {})
             st["positions"] = []
+            st["trades"] = []
             gw.refresh_all()
 
     def status(self):

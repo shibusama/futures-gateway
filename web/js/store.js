@@ -4,14 +4,15 @@
  */
 export const store = {
   conn: "closed",           // closed | connecting | open
-  view: "overview",         // overview | detail
-  activeAcct: null,         // 当前明细页账户名
+  view: "overview",         // overview | trade | detail
+  activeAcct: null,         // 当前交易/明细页账户名
   sel: "rb2610",            // 当前选中合约
   tf: "1m",
   qty: 1,
   dir: "buy",
   otype: "market",
   limitPx: "",
+  offsetMode: "auto",       // auto | open | close（通用下单）
 
   ticks: {},                // symbol -> tick 数据（网关推送，最新一笔）
   lastTicks: {},            // symbol -> 最后一次有效 tick（断流时保留）
@@ -26,6 +27,21 @@ export const store = {
   lastShown: [],            // toast 提示防抖
   sumTab: "symbol",         // overview 汇总区：symbol | account
   tab: "pos",               // detail 底部：pos | ord
+  tradeTab: "pos",          // pos | fills | stats | combo
+  tradeFillMode: "detail",
+  tradeFillType: "all",
+  tradeFillExchange: "all",
+  tradeFillQuery: "",
+  tradeStatsType: "all",    // all | long | short
+  tradeStatsExchange: "all",
+  tradeStatsQuery: "",
+  tradePosMode: "single",   // single | group（持仓/组合）
+  tradePosType: "all",      // all | long | short
+  tradePosExchange: "all",
+  tradePosQuery: "",
+  tradeCloseRatio: 100,
+  tradePosSelected: [],     // position keys: symbol_direction
+  tradeReadManualSLTP: false,
   reconnectAttempt: 0,      // WebSocket 重连次数（供 UI 展示）
   wasConnected: false,      // 是否曾成功连上过
 };

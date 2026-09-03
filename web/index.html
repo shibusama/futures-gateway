@@ -16,9 +16,11 @@
     </div>
     <div class="nav-tabs">
       <button id="nav-overview" class="nt active">多账户概览</button>
+      <button id="nav-trade" class="nt">通用下单</button>
       <button id="nav-detail" class="nt">账户明细</button>
     </div>
     <button type="button" id="theme-toggle" class="theme-btn" aria-pressed="false" title="切换到深色主题">深色</button>
+    <button type="button" id="reload-btn" class="theme-btn" title="刷新页面（F5）">刷新</button>
     <button type="button" id="about-btn" class="theme-btn" title="关于">关于</button>
     <div class="clock" id="clock"></div>
     <div class="acct" id="acct-strip"></div>
@@ -59,6 +61,169 @@
         <div class="empty" id="sum-empty" style="display:none">暂无持仓</div>
       </div>
       <div class="roadmap" id="roadmap"></div>
+    </div>
+  </div>
+
+  <!-- 通用下单 -->
+  <div id="view-trade" style="display:none">
+    <div class="trade-wrap">
+      <div class="panel trade-bar">
+        <div class="trade-bar-head">
+          <span class="trade-title">通用下单</span>
+          <select id="trade-acct-select" class="trade-acct-select" aria-label="交易账户"></select>
+          <button id="trade-query-btn" type="button" class="close-btn">刷新资金</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="trade-funds-table">
+            <thead><tr>
+              <th>账户</th><th>权益</th><th>可用资金</th><th>浮动盈亏</th>
+              <th>占用保证金</th><th>风险度</th><th>手续费</th>
+            </tr></thead>
+            <tbody id="trade-funds-row"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="trade-main">
+        <div class="trade-left">
+          <div class="panel watchlist trade-panel">
+            <div class="panel-title">自选合约 <span class="live-dot"></span></div>
+            <div class="wl-head"><span>合约</span><span class="right">最新价</span><span class="right">涨跌幅</span></div>
+            <div id="trade-watchlist"></div>
+            <div class="wl-add">
+              <input id="trade-wl-add-input" type="text" placeholder="添加合约，如 rb2610" autocomplete="off" spellcheck="false" />
+              <button type="button" id="trade-wl-add-btn">添加</button>
+            </div>
+          </div>
+          <div class="panel trade-panel trade-pending-panel">
+            <div class="panel-title">未成交 (<span id="trade-pending-count">0</span>)</div>
+            <div id="trade-pending" class="tbl-wrap trade-pending-wrap"></div>
+          </div>
+        </div>
+        <aside class="panel trade-ticket">
+          <div class="panel-title">下单板</div>
+          <div class="trade-symbol-row">
+            <label for="trade-symbol-input">合约</label>
+            <input id="trade-symbol-input" type="text" class="trade-symbol-input" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="t-price">现价 <b id="trade-t-price">—</b></div>
+          <div class="dir-tabs">
+            <button id="trade-dir-buy" type="button" class="dt buy">买入</button>
+            <button id="trade-dir-sell" type="button" class="dt sell">卖出</button>
+          </div>
+          <div class="trade-offset-row">
+            <span class="trade-offset-label">开平</span>
+            <div class="otype-row trade-offset-tabs">
+              <button id="trade-offset-auto" type="button" class="seg active">自动</button>
+              <button id="trade-offset-open" type="button" class="seg">开仓</button>
+              <button id="trade-offset-close" type="button" class="seg">平仓</button>
+            </div>
+          </div>
+          <p id="trade-pos-hint" class="trade-pos-hint" hidden></p>
+          <div class="qty-row"><span>手数</span>
+            <div class="stepper">
+              <button id="trade-qty-minus" type="button" aria-label="减少手数">−</button>
+              <input id="trade-qty-input" type="number" min="1" max="999" value="1" aria-label="下单手数" />
+              <button id="trade-qty-plus" type="button" aria-label="增加手数">+</button>
+            </div>
+          </div>
+          <div class="otype-row">
+            <button id="trade-otype-market" type="button" class="seg">市价</button>
+            <button id="trade-otype-limit" type="button" class="seg">限价</button>
+          </div>
+          <input id="trade-limit-input" class="px-input" type="number" style="display:none" placeholder="委托价格" aria-label="委托限价" />
+          <div class="sim-note">自动开平：有反向持仓则平仓，否则开仓</div>
+          <button id="trade-submit-btn" type="button" class="big-btn buy">买入开多 1 手</button>
+          <button id="trade-clear-btn" type="button" class="close-btn trade-clear-btn">清空</button>
+        </aside>
+      </div>
+      <section class="panel trade-bottom">
+        <div class="trade-bottom-body">
+          <div class="trade-pos-toolbar" id="trade-pos-toolbar" hidden>
+            <div class="trade-fill-modes">
+              <label class="trade-radio"><input type="radio" name="trade-pos-mode" value="single" checked /> 持仓</label>
+              <label class="trade-radio"><input type="radio" name="trade-pos-mode" value="group" /> 组合</label>
+            </div>
+            <select id="trade-pos-type" class="trade-filter-select" aria-label="方向类型">
+              <option value="all">全部类型</option>
+              <option value="long">多头</option>
+              <option value="short">空头</option>
+            </select>
+            <select id="trade-pos-exchange" class="trade-filter-select" aria-label="交易所">
+              <option value="all">全部交易所</option>
+              <option value="SHFE">上期所</option>
+              <option value="DCE">大商所</option>
+              <option value="CZCE">郑商所</option>
+              <option value="CFFEX">中金所</option>
+              <option value="INE">能源中心</option>
+              <option value="GFEX">广期所</option>
+            </select>
+            <input id="trade-pos-query" class="trade-filter-input" type="text" placeholder="品种/合约（用“,”分隔）" spellcheck="false" />
+            <label class="trade-ratio-label">平仓比例
+              <select id="trade-close-ratio" class="trade-filter-select">
+                <option value="25">25%</option>
+                <option value="50">50%</option>
+                <option value="75">75%</option>
+                <option value="100" selected>100%</option>
+              </select>
+            </label>
+            <div class="trade-pos-actions">
+              <button type="button" id="trade-act-counter-close" class="trade-act-btn">对价平仓</button>
+              <button type="button" id="trade-act-reverse" class="trade-act-btn">市价反手</button>
+              <button type="button" id="trade-act-rollover" class="trade-act-btn">移仓换月</button>
+              <button type="button" id="trade-act-exercise" class="trade-act-btn">行权</button>
+              <button type="button" id="trade-act-hedge" class="trade-act-btn">自对冲</button>
+            </div>
+            <label class="trade-check"><input type="checkbox" id="trade-read-sltp" /> 读取手工止盈止损</label>
+            <button type="button" id="trade-add-combo" class="trade-act-btn subtle" title="将选中持仓加入自组合">加入自组合</button>
+          </div>
+          <div class="trade-fill-toolbar" id="trade-fill-toolbar" hidden>
+            <div class="trade-fill-modes">
+              <label class="trade-radio"><input type="radio" name="trade-fill-mode" value="detail" checked /> 成交明细</label>
+              <label class="trade-radio"><input type="radio" name="trade-fill-mode" value="summary" /> 成交汇总</label>
+            </div>
+            <select id="trade-fill-type" class="trade-filter-select" aria-label="开平类型">
+              <option value="all">全部类型</option>
+              <option value="open">开仓</option>
+              <option value="close">平仓</option>
+            </select>
+            <select id="trade-fill-exchange" class="trade-filter-select" aria-label="交易所">
+              <option value="all">全部交易所</option>
+              <option value="SHFE">上期所</option>
+              <option value="DCE">大商所</option>
+              <option value="CZCE">郑商所</option>
+              <option value="CFFEX">中金所</option>
+              <option value="INE">能源中心</option>
+              <option value="GFEX">广期所</option>
+            </select>
+            <input id="trade-fill-query" class="trade-filter-input" type="text" placeholder="品种/合约（用“,”分隔）" spellcheck="false" />
+          </div>
+          <div class="trade-stats-toolbar" id="trade-stats-toolbar" hidden>
+            <select id="trade-stats-type" class="trade-filter-select" aria-label="方向类型">
+              <option value="all">全部类型</option>
+              <option value="long">多头</option>
+              <option value="short">空头</option>
+            </select>
+            <select id="trade-stats-exchange" class="trade-filter-select" aria-label="交易所">
+              <option value="all">全部交易所</option>
+              <option value="SHFE">上期所</option>
+              <option value="DCE">大商所</option>
+              <option value="CZCE">郑商所</option>
+              <option value="CFFEX">中金所</option>
+              <option value="INE">能源中心</option>
+              <option value="GFEX">广期所</option>
+            </select>
+            <input id="trade-stats-query" class="trade-filter-input" type="text" placeholder="品种/合约（用“,”分隔）" spellcheck="false" />
+            <button type="button" id="trade-stats-risk-btn" class="trade-act-btn">设置风险预警</button>
+          </div>
+          <div id="trade-tables" class="tbl-wrap trade-table-area"></div>
+        </div>
+        <div class="bottom-tabs trade-bottom-tabs">
+          <button id="trade-tab-pos" type="button" class="bt active">持仓列表</button>
+          <button id="trade-tab-fills" type="button" class="bt">成交列表</button>
+          <button id="trade-tab-stats" type="button" class="bt">交易统计</button>
+          <button id="trade-tab-combo" type="button" class="bt">自组合持仓列表</button>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -151,6 +316,21 @@
       </div>
       <p id="about-status" class="about-status"></p>
       <button type="button" id="about-close" class="btn primary about-close">关闭</button>
+    </div>
+  </div>
+
+  <div id="rollover-dialog" class="about-dialog" hidden>
+    <div id="rollover-backdrop" class="about-backdrop"></div>
+    <div class="about-panel trade-dialog-panel" role="dialog" aria-labelledby="rollover-title">
+      <h2 id="rollover-title">移仓换月</h2>
+      <p class="about-muted">平掉选中持仓并开仓至目标合约（对价委托）</p>
+      <label class="trade-dialog-field">目标合约
+        <input id="rollover-target" class="trade-filter-input full" type="text" placeholder="如 rb2611" spellcheck="false" />
+      </label>
+      <div class="about-actions">
+        <button type="button" id="rollover-cancel" class="btn secondary">取消</button>
+        <button type="button" id="rollover-confirm" class="btn primary">确认移仓</button>
+      </div>
     </div>
   </div>
 
