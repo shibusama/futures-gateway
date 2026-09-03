@@ -55,19 +55,18 @@ if defined BUILD_SKIP_ASSETS (
 
     set "GEN_VER=1"
     if exist "version_info.txt" (
-        for %%A in ("app_version.py") do set "VER_SRC=%%~tA"
-        for %%B in ("version_info.txt") do set "VER_DST=%%~tB"
-        if "!VER_DST!" geq "!VER_SRC!" set "GEN_VER=0"
+        "%PY%" scripts\version_info_stale.py >nul 2>&1
+        if not errorlevel 1 set "GEN_VER=0"
     )
     if "!GEN_VER!"=="1" (
         "%PY%" scripts\generate_version_info.py
     ) else (
-        echo [skip] version_info.txt up to date
+        echo [skip] version_info.txt matches app_version.py
     )
 )
 
 echo Running PyInstaller...
-"%PY%" -m PyInstaller --noconfirm FuturesTerminal.spec
+"%PY%" -m PyInstaller --noconfirm --clean FuturesTerminal.spec
 if errorlevel 1 (
     echo [ERROR] PyInstaller build failed
     pause
