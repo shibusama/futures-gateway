@@ -260,20 +260,23 @@ window.addEventListener("beforeunload", () => {
   teardownSocket();
 });
 
+/** 向网关发送指令；socket 未就绪时返回 false（消息会被丢弃，调用方应提示用户） */
 export function send(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
+    return true;
   }
+  return false;
 }
 
-/** 下单指令 → 网关 */
+/** 下单指令 → 网关；返回是否真正送达 */
 export function sendOrder({ account, symbol, direction, offset, price, volume }) {
-  send({ cmd: "order", account, symbol, direction, offset, price, volume });
+  return send({ cmd: "order", account, symbol, direction, offset, price, volume });
 }
 
-/** 撤单指令 → 网关 */
+/** 撤单指令 → 网关；返回是否真正送达 */
 export function sendCancel({ account, order_sys_id, symbol, exchange }) {
-  send({ cmd: "cancel", account, order_sys_id, symbol, exchange });
+  return send({ cmd: "cancel", account, order_sys_id, symbol, exchange });
 }
 
 /** 订阅自选合约行情 */

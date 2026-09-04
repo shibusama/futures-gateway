@@ -4,7 +4,10 @@ import asyncio
 import json
 import mimetypes
 import os
+import time
 import webbrowser
+
+from collections import deque
 
 from aiohttp import web
 
@@ -47,6 +50,10 @@ WEB_DIR = web_dir()
 
 # 免鉴权的 API：登录 / 会话状态 / 登出。其余 /api/* 与 /ws 在“非本机 Host”时需先登录。
 OPEN_API = {"/api/login", "/api/session", "/api/logout"}
+
+# 防双击/重发：记录最近下单指纹，时间窗内同参数报单视为重复直接忽略
+_RECENT_ORDERS = deque(maxlen=32)
+_ORDER_DUP_WINDOW_SEC = 1.0
 
 
 def _auth_middleware(site_auth: SiteAuth):
@@ -204,14 +211,31 @@ async def websocket_handler(request):
                     mgr.query_all()  # 触发所有账号刷新数据，结果经广播推回
                     await ws.send_str(json.dumps({"type": "system", "cmd": "query_ok"}, ensure_ascii=False))
                 elif cmd == "order":
-                    result = mgr.send_order(
-                        account=payload.get("account"),
-                        symbol=payload.get("symbol"),
-                        direction=payload.get("direction"),
-                        offset=payload.get("offset"),
-                        price=float(payload.get("price", 0)),
-                        volume=int(payload.get("volume", 0)),
-                    )
+                    try:
+                        sig = (
+                            payload.get("account"),
+                            payload.get("symbol"),
+                            payload.get("direction"),
+                            payload.get("offset"),
+                            payload.get("price"),
+                            payload.get("volume"),
+                        )
+                        now = time.monotonic()
+                        if any(ts >= now - _ORDER_DUP_WINDOW_SEC and s == sig for s, ts in _RECENT_ORDERS):
+                            result = {"ok": False, "msg": "检测到 1 秒内重复的相同报单，已忽略"}
+                        else:
+                            _RECENT_ORDERS.append((sig, now))
+                            # 字段类型/范围由 CtpGateway.send_order 统一强校验，这里不再裸转避免抛异常断连
+                            result = mgr.send_order(
+                                account=payload.get("account"),
+                                symbol=payload.get("symbol"),
+                                direction=payload.get("direction"),
+                                offset=payload.get("offset"),
+                                price=payload.get("price"),
+                                volume=payload.get("volume"),
+                            )
+                    except Exception as exc:
+                        result = {"ok": False, "msg": f"下单指令异常：{exc}"}
                     await ws.send_str(json.dumps({"type": "system", "cmd": "order_result", "data": result}, ensure_ascii=False))
                 elif cmd == "cancel":
                     result = mgr.cancel_order(
@@ -239,6 +263,12 @@ def run_server(mgr, config):
     port = int(config.get("port", 8765))
 
     sa: SiteAuth = app["site_auth"]
+    if not sa.enabled and host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"\n [错误] 站点口令未启用，但 host 配置为非本机地址（{host}）。")
+        print("        为避免局域网/公网无鉴权暴露下单与撤单接口，已拒绝启动。")
+        print("        · 需要在 config.json 的 site_auth 中配置口令后才能对外提供服务；")
+        print("        · 或把 host 改回 127.0.0.1（仅本机访问）。")
+        raise SystemExit(1)
     if sa.enabled:
         print("  站点口令：已启用（非本机 Host 访问需登录）")
     else:

@@ -52,10 +52,26 @@ export function positionFor(account, symbol) {
   );
 }
 
-function closeOffsetFor(p) {
+/** SHFE/INE 需区分平今/平昨：按今昨各自冻结后的可平量拆分委托，避免单笔 close_today 超今仓被拒。 */
+function closePlan(p, volume) {
   const ex = p.exchange || exchangeOf(p.symbol);
-  if ((ex === "SHFE" || ex === "INE") && (p.today_volume || 0) > 0) return "close_today";
-  return "close";
+  const today = Math.max(0, Number(p.today_volume) || 0);
+  const yd = Math.max(0, Number(p.yd_volume) || 0);
+  // 非上期所/能源中心，或只有昨仓时：CTP 用一个 close 即可
+  if (!(ex === "SHFE" || ex === "INE") || today <= 0) {
+    return [{ offset: "close", qty: volume }];
+  }
+  const todayAvail = Math.max(0, today - (Number(p.today_frozen) || 0));
+  const ydAvail = yd > 0 ? Math.max(0, yd - (Number(p.yd_frozen) || 0)) : 0;
+  let rest = Math.max(0, volume);
+  const qToday = Math.min(rest, todayAvail);
+  rest -= qToday;
+  const qYd = Math.min(rest, ydAvail);
+  const plan = [];
+  if (qYd > 0) plan.push({ offset: "close", qty: qYd });
+  if (qToday > 0) plan.push({ offset: "close_today", qty: qToday });
+  // 今昨冻结数据缺失时的回退：至少按单笔发，交给柜台报错兜底
+  return plan.length ? plan : [{ offset: "close", qty: volume }];
 }
 
 function submitClose(account, p, volume, priceMode) {
@@ -65,9 +81,12 @@ function submitClose(account, p, volume, priceMode) {
   const price = priceMode === "counterparty"
     ? counterpartyPrice(tick, direction, true)
     : marketPrice(tick, direction);
-  if (!isFinite(price)) return { ok: false, msg: `${p.symbol} 价格无效` };
-  sendOrder({ account, symbol: p.symbol, direction, offset: closeOffsetFor(p), price, volume });
-  return { ok: true };
+  if (!isFinite(price) || price <= 0) return { ok: false, msg: `${p.symbol} 价格无效` };
+  const plan = closePlan(p, volume);
+  plan.forEach((leg) => {
+    sendOrder({ account, symbol: p.symbol, direction, offset: leg.offset, price, volume: leg.qty });
+  });
+  return { ok: true, count: plan.length };
 }
 
 function submitOpen(account, symbol, direction, volume, priceMode) {
@@ -99,16 +118,22 @@ export function batchClosePositions(account, positions, { ratio = 100, priceMode
 export function batchReversePositions(account, positions, { ratio = 100 } = {}) {
   if (!positions.length) return { ok: false, msg: "请先勾选持仓" };
   let n = 0;
+  let partial = 0;
+  const errs = [];
   positions.forEach((p) => {
     const vol = closeQty(p, ratio);
     if (vol <= 0) return;
-    submitClose(account, p, vol, "market");
+    // 平仓必须成功才反手，否则只平不开会造成净敞口翻倍
+    const cr = submitClose(account, p, vol, "market");
+    if (!cr.ok) { if (cr.msg) errs.push(cr.msg); return; }
     const openDir = isLong(p) ? "sell" : "buy";
-    submitOpen(account, p.symbol, openDir, vol, "market");
-    n += 1;
+    const or = submitOpen(account, p.symbol, openDir, vol, "market");
+    if (or.ok) n += 1;
+    else { partial += 1; errs.push(`${p.symbol} 已平仓但反手开仓失败：${or.msg || "未知原因"}`); }
   });
-  if (!n) return { ok: false, msg: "无可操作持仓" };
-  return { ok: true, msg: `已提交 ${n} 组反手` };
+  if (!n && !partial) return { ok: false, msg: errs[0] || "无可操作持仓" };
+  const extra = partial ? `（其中 ${partial} 笔仅平仓、未反手）` : "";
+  return { ok: true, msg: errs.length ? `已反手 ${n} 组${extra}：${errs[0]}` : `已提交 ${n} 组反手` };
 }
 
 export function batchRolloverPositions(account, positions, targetSymbol, { ratio = 100 } = {}) {
@@ -116,16 +141,22 @@ export function batchRolloverPositions(account, positions, targetSymbol, { ratio
   if (!target) return { ok: false, msg: "请输入目标合约" };
   if (!positions.length) return { ok: false, msg: "请先勾选持仓" };
   let n = 0;
+  let partial = 0;
+  const errs = [];
   positions.forEach((p) => {
     const vol = closeQty(p, ratio);
     if (vol <= 0) return;
-    submitClose(account, p, vol, "counterparty");
+    // 原仓必须平掉才开目标仓，避免移仓变成双倍敞口
+    const cr = submitClose(account, p, vol, "counterparty");
+    if (!cr.ok) { if (cr.msg) errs.push(cr.msg); return; }
     const openDir = isLong(p) ? "buy" : "sell";
-    submitOpen(account, target, openDir, vol, "counterparty");
-    n += 1;
+    const or = submitOpen(account, target, openDir, vol, "counterparty");
+    if (or.ok) n += 1;
+    else { partial += 1; errs.push(`${p.symbol} 已平仓但目标 ${target} 开仓失败：${or.msg || "未知原因"}`); }
   });
-  if (!n) return { ok: false, msg: "无可移仓持仓" };
-  return { ok: true, msg: `已提交 ${n} 笔移仓至 ${target}` };
+  if (!n && !partial) return { ok: false, msg: errs[0] || "无可移仓持仓" };
+  const extra = partial ? `（其中 ${partial} 笔仅平仓、未开目标）` : "";
+  return { ok: true, msg: errs.length ? `已移仓 ${n} 笔${extra}：${errs[0]}` : `已提交 ${n} 笔移仓至 ${target}` };
 }
 
 export function batchExercisePositions(account, positions) {

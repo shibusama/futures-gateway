@@ -282,7 +282,9 @@ export function groupPositionsByProduct(list) {
 
 export function closeQty(p, ratioPct) {
   const ratio = Math.max(0, Math.min(100, Number(ratioPct) || 100)) / 100;
-  const avail = p.avail || p.volume || 0;
+  // avail 为 0 表示全部冻结不可平，此时不能回退到 volume，否则会把锁仓误当可平发出
+  const avail = p.avail != null ? p.avail : (p.volume || 0);
+  if (!(avail > 0)) return 0;
   if (ratio >= 1) return avail;
   return Math.max(1, Math.floor(avail * ratio));
 }

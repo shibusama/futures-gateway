@@ -1,7 +1,7 @@
 /**
  * app.js — 应用入口：装配 store / ws / ui 模块，绑定事件，响应网关推送。
  */
-import { store, totals, emit } from "./store.js";
+import { store, totals, emit, getTick } from "./store.js";
 import { connect, sendOrder, sendCancel, sendSubscribe, requestQuery, reconnect } from "./ws.js";
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
@@ -107,31 +107,47 @@ function renderHeader(conn) {
 }
 function fmtN(v) { return Number(v || 0).toLocaleString("zh-CN", { maximumFractionDigits: 0 }); }
 
-function submitOrderFlow({ account, symbol, direction, offsetMode: forcedOffset, qtyOverride }) {
+/* 资金动作短时防重复（防双击/连点把同一单发两遍）。仅在真正发送前调用。 */
+let _actionCooldownUntil = 0;
+function repeatGuard(ms = 800) {
+  const now = Date.now();
+  if (now < _actionCooldownUntil) return false;
+  _actionCooldownUntil = now + ms;
+  return true;
+}
+
+function submitOrderFlow({ account, symbol, direction, offsetMode: forcedOffset, qtyOverride, priceMode: preferredMode }) {
   if (!account) { toast("请先选择账户"); return; }
   if (store.conn !== "open") { toast("网关未连接"); return; }
   const sym = (symbol || store.sel || "").trim();
   if (!sym) { toast("请输入合约代码"); return; }
-  const tick = store.ticks[sym];
+  const tick = getTick(sym);
   if (!tick) { toast("暂无该合约行情"); return; }
-  const priceMode = store.tradePriceMode || (store.otype === "limit" ? "limit" : "counter");
+  // 明细页用其自身市价/限价段（store.otype），通用下单页用对价/挂价（store.tradePriceMode），互不误伤
+  const priceMode = preferredMode || store.tradePriceMode || (store.otype === "limit" ? "limit" : "market");
   let price;
   if (priceMode === "limit") {
     store.otype = "limit";
-    const raw = store.limitPx || document.getElementById("trade-limit-input")?.value;
+    const limitInput = store.view === "trade"
+      ? document.getElementById("trade-limit-input")
+      : document.getElementById("limit-input");
+    const raw = (limitInput && limitInput.value != null ? limitInput.value : "") || store.limitPx || "";
     price = parseFloat(raw);
   } else {
     store.otype = "market";
     price = counterpartyPrice(tick, direction, false);
   }
-  if (!isFinite(price)) { toast("请输入有效价格"); return; }
+  if (!isFinite(price) || price <= 0) { toast("请输入有效价格"); return; }
   const mode = forcedOffset === "close"
     ? "close"
     : (store.tradeAutoOffset === false ? (store.offsetMode || "open") : "auto");
   const offset = mode === "close" ? "close" : resolveOffset(account, sym, direction, mode);
   const volume = qtyOverride || store.qty;
-  sendOrder({ account, symbol: sym, direction, offset, price, volume });
-  toast(`已发送 ${orderActionLabel(direction, offset)} ${volume} 手`);
+  if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+  const sent = sendOrder({ account, symbol: sym, direction, offset, price, volume });
+  toast(sent
+    ? `已发送 ${orderActionLabel(direction, offset)} ${volume} 手`
+    : "下单未送达：与网关连接已断开，请重试");
 }
 
 /* ---------- 事件 ---------- */
@@ -246,6 +262,7 @@ function bindEvents() {
     const account = store.activeAcct;
     if (!account) { toast("请先选择账户"); return; }
     const sel = selectedPositions(account);
+    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
     const ratio = store.tradeCloseRatio || 100;
     const r = fn(account, sel, { ratio });
     toast(r.ok ? r.msg : (r.msg || "操作失败"));
@@ -258,6 +275,7 @@ function bindEvents() {
     if (!account) { toast("请先选择账户"); return; }
     const sel = selectedComboPositions(account);
     if (!sel.length) { toast("请先点击表格行选择持仓"); return; }
+    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
     const ratio = store.tradeCloseRatio || 100;
     const r = fn(account, sel, { ratio });
     toast(r.ok ? r.msg : (r.msg || "操作失败"));
@@ -331,15 +349,17 @@ function bindEvents() {
     if (!account) { toast("请先选择账户"); return; }
     const sel = selectedTradeOrders(account).filter((o) => canCancelOrder(o) && o.order_sys_id);
     if (!sel.length) { toast("请先点击表格行选择可撤委托"); return; }
+    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+    let sent = 0;
     sel.forEach((o) => {
-      sendCancel({
+      if (sendCancel({
         account,
         order_sys_id: o.order_sys_id,
         symbol: o.symbol,
         exchange: o.exchange || exchangeOf(o.symbol),
-      });
+      })) sent += 1;
     });
-    toast(`已发送 ${sel.length} 笔撤单`);
+    toast(sent ? `已发送 ${sent} 笔撤单` : "撤单未送达：与网关连接已断开，请重试");
   });
   document.getElementById("trade-order-cancel-all").addEventListener("click", () => {
     if (store.conn !== "open") { toast("网关未连接"); return; }
@@ -347,15 +367,17 @@ function bindEvents() {
     if (!account) { toast("请先选择账户"); return; }
     const sel = cancelableTradeOrders(account);
     if (!sel.length) { toast("当前无可撤委托"); return; }
+    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+    let sent = 0;
     sel.forEach((o) => {
-      sendCancel({
+      if (sendCancel({
         account,
         order_sys_id: o.order_sys_id,
         symbol: o.symbol,
         exchange: o.exchange || exchangeOf(o.symbol),
-      });
+      })) sent += 1;
     });
-    toast(`已发送 ${sel.length} 笔全撤`);
+    toast(sent ? `已发送 ${sent} 笔全撤` : "撤单未送达：与网关连接已断开，请重试");
   });
   document.getElementById("trade-order-panel").addEventListener("click", (e) => {
     const row = e.target.closest(".trade-order-row");
@@ -375,6 +397,7 @@ function bindEvents() {
     document.getElementById("rollover-dialog").hidden = true;
   });
   document.getElementById("rollover-confirm").addEventListener("click", () => {
+    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
     const account = store.activeAcct;
     const sel = selectedPositions(account);
     const target = document.getElementById("rollover-target").value.trim();
@@ -677,6 +700,7 @@ function bindOrderPanel(prefix, onSymbolChange) {
       symbol: store.sel,
       direction: store.dir,
       offsetMode: p ? (store.tradeAutoOffset === false ? store.offsetMode : "auto") : "open",
+      priceMode: p ? undefined : (store.otype === "limit" ? "limit" : "market"),
     });
   });
 }
@@ -687,13 +711,14 @@ function bindCancelClick(e) {
   const account = store.activeAcct;
   if (!account) { toast("请先选择账户"); return; }
   if (store.conn !== "open") { toast("网关未连接"); return; }
-  sendCancel({
+  if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+  const ok = sendCancel({
     account,
     order_sys_id: btn.getAttribute("data-cancel-order"),
     symbol: btn.getAttribute("data-symbol"),
     exchange: btn.getAttribute("data-exchange"),
   });
-  toast(`撤单已发送：${btn.getAttribute("data-symbol")}`);
+  toast(ok ? `撤单已发送：${btn.getAttribute("data-symbol")}` : "撤单未送达：与网关连接已断开");
 }
 
 /* ---------- toast ---------- */

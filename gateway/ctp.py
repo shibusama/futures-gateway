@@ -15,8 +15,10 @@ CTP 连接封装（基于 openctp-ctp：标准 CTP API 的 Python 直译，pip i
 
 与 vnpy_ctp 版本的差异：openctp 是标准 CTP API 直译，类名 CThostFtdc*，需 SPI 继承。
 """
-import threading
+import math
 import os
+import re
+import threading
 
 from openctp_ctp import thosttraderapi as tdapi
 from openctp_ctp import thostmduserapi as mdapi
@@ -513,10 +515,27 @@ class CtpGateway:
         self.md.SubscribeMarketData(encoded, len(encoded))
 
     # ---- 下单 ----
-    def send_order(self, symbol: str, direction: str, offset: str, price: float, volume: int):
-        """direction: 'buy'/'sell'; offset: 'open'/'close'。"""
+    def send_order(self, symbol: str, direction: str, offset: str, price, volume):
+        """direction: 'buy'/'sell'; offset: 'open'/'close'/'close_today'/'close_yesterday'。"""
         if not self.trader:
             return {"ok": False, "msg": "交易连接未就绪"}
+        # ---- 入参强校验：非法字段一律拒绝，绝不静默回退成 卖/平仓 ----
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z]{1,6}\d{1,5}", symbol.strip()):
+            return {"ok": False, "msg": f"合约代码非法：{symbol!r}"}
+        symbol = symbol.strip()
+        if direction not in ("buy", "sell"):
+            return {"ok": False, "msg": f"非法方向：{direction!r}（仅支持 buy/sell）"}
+        if offset not in ("open", "close", "close_today", "close_yesterday"):
+            return {"ok": False, "msg": f"非法开平：{offset!r}（仅支持 open/close/close_today/close_yesterday）"}
+        try:
+            price_f = float(price)
+            volume_f = int(volume)
+        except (TypeError, ValueError):
+            return {"ok": False, "msg": "价格/手数格式非法"}
+        if not (math.isfinite(price_f) and price_f > 0):
+            return {"ok": False, "msg": f"委托价格非法：{price!r}"}
+        if not (1 <= volume_f <= 1000):
+            return {"ok": False, "msg": f"手数非法：{volume!r}（须为 1-1000 的整数）"}
         f = tdapi.CThostFtdcInputOrderField()
         f.BrokerID = self.broker_id
         f.InvestorID = self.user_id
@@ -528,10 +547,10 @@ class CtpGateway:
             "close": tdapi.THOST_FTDC_OF_Close,
             "close_today": tdapi.THOST_FTDC_OF_CloseToday,
             "close_yesterday": tdapi.THOST_FTDC_OF_CloseYesterday,
-        }.get(offset, tdapi.THOST_FTDC_OF_Close)
+        }[offset]
         f.CombHedgeFlag = tdapi.THOST_FTDC_HF_Speculation
-        f.LimitPrice = price
-        f.VolumeTotalOriginal = volume
+        f.LimitPrice = price_f
+        f.VolumeTotalOriginal = volume_f
         f.OrderPriceType = tdapi.THOST_FTDC_OPT_LimitPrice
         f.TimeCondition = tdapi.THOST_FTDC_TC_GFD
         f.VolumeCondition = tdapi.THOST_FTDC_VC_AV
@@ -540,15 +559,19 @@ class CtpGateway:
         ret = self.trader.ReqOrderInsert(f, 0)
         return {"ok": ret == 0, "msg": "已提交" if ret == 0 else f"报单失败 (ret={ret})"}
 
-    def cancel_order(self, order_sys_id: str, symbol: str, exchange: str):
+    def cancel_order(self, order_sys_id, symbol: str, exchange: str):
         if not self.trader:
             return {"ok": False, "msg": "交易连接未就绪"}
+        if not isinstance(order_sys_id, str) or not order_sys_id.strip():
+            return {"ok": False, "msg": "缺少委托编号 (order_sys_id)"}
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z]{1,6}\d{1,5}", symbol.strip()):
+            return {"ok": False, "msg": f"合约代码非法：{symbol!r}"}
         f = tdapi.CThostFtdcInputOrderActionField()
         f.BrokerID = self.broker_id
         f.InvestorID = self.user_id
-        f.OrderSysID = order_sys_id
-        f.InstrumentID = symbol
-        f.ExchangeID = exchange
+        f.OrderSysID = order_sys_id.strip()
+        f.InstrumentID = symbol.strip()
+        f.ExchangeID = exchange or self._exchange_of(symbol)
         f.ActionFlag = tdapi.THOST_FTDC_AF_Delete
         ret = self.trader.ReqOrderAction(f, 0)
         return {"ok": ret == 0, "msg": "撤单已提交" if ret == 0 else f"撤单失败 (ret={ret})"}
