@@ -105,6 +105,17 @@ gh release create desktop-vX.Y.Z dist/FuturesTerminal-win64.zip dist/installer/F
 - 用户未要求时不要 force push
 - 版本号未升时不要发版（否则朋友收不到更新提示）
 
+## 常见坑（实操踩过，务必避开）
+
+1. **打包脚本用直接调用，别用 `cmd //c`**。
+   在 Git Bash（尤其后台任务）里 `cmd //c build_desktop_release.bat` 会报 "not recognized"（cmd 找不到 bat）。正确：
+   `./build_desktop_release.bat`（或 `cmd //c "build_desktop_release.bat"`）。后台跑用 `"./build_desktop_release.bat" > /tmp/rel.log 2>&1`。
+2. **push tag 偶发网络中断，重试即可**。`git push origin desktop-vX.Y.Z` 可能报 `Recv failure: Connection was reset`，重试一次即成功。
+3. **顺序别乱**：先 `git push origin desktop-vX.Y.Z` **成功**，再 `gh release create`（否则 gh 报 "tag 未推送"）。
+4. **产物核对**：打包后确认 `dist/FuturesTerminal/FuturesTerminal.exe`、`dist/FuturesTerminal-win64.zip`、`dist/installer/FuturesTerminal-Setup-{ver}.exe` 都生成。
+5. **OSS 验证**：上传后 `curl` manifest 确认 `version` 为新版本、zip 返回 200。
+6. **勿误提交**：`.claude/`（含 cftunnel.log）、`oss_release.env`、`config.json` 都应被 .gitignore 排除，`git add -A` 前核对 `git status` 无这些文件。
+
 ## 完成后汇报
 
 给用户：
