@@ -8,6 +8,12 @@ import {
   closeQty, isLong, isOptionSymbol, suggestRolloverSymbol,
 } from "./positions.js";
 
+let orderSender = sendOrder;
+/** 仅测试用：替换真实 WebSocket 发送以捕获下单参数（不注入则维持原样）。 */
+export function __setOrderSender(fn) {
+  orderSender = fn || sendOrder;
+}
+
 export function resolveOffset(account, symbol, direction, offsetMode) {
   if (offsetMode === "open") return "open";
   if (offsetMode === "close") return "close";
@@ -84,7 +90,7 @@ function submitClose(account, p, volume, priceMode) {
   if (!isFinite(price) || price <= 0) return { ok: false, msg: `${p.symbol} 价格无效` };
   const plan = closePlan(p, volume);
   plan.forEach((leg) => {
-    sendOrder({ account, symbol: p.symbol, direction, offset: leg.offset, price, volume: leg.qty });
+    orderSender({ account, symbol: p.symbol, direction, offset: leg.offset, price, volume: leg.qty });
   });
   return { ok: true, count: plan.length };
 }
@@ -95,8 +101,8 @@ function submitOpen(account, symbol, direction, volume, priceMode) {
   const price = priceMode === "counterparty"
     ? counterpartyPrice(tick, direction, false)
     : marketPrice(tick, direction);
-  if (!isFinite(price)) return { ok: false, msg: `${symbol} 价格无效` };
-  sendOrder({ account, symbol, direction, offset: "open", price, volume });
+  if (!isFinite(price) || price <= 0) return { ok: false, msg: `${symbol} 价格无效` };
+  orderSender({ account, symbol, direction, offset: "open", price, volume });
   return { ok: true };
 }
 

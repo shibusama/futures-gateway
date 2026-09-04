@@ -302,9 +302,11 @@ export function reconnect() {
   connect();
 }
 
-window.addEventListener("beforeunload", () => {
-  teardownSocket();
-});
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    teardownSocket();
+  });
+}
 
 /** 向网关发送指令；socket 未就绪时返回 false（消息会被丢弃，调用方应提示用户） */
 export function send(payload) {

@@ -1,0 +1,9 @@
+{
+  "name": "futures-gateway-web",
+  "private": true,
+  "type": "module",
+  "description": "期界前端（无构建的原生 ES Module）。此 package.json 仅用于让 Node 跑单测，不影响浏览器加载。",
+  "scripts": {
+    "test": "node --test"
+  }
+}
