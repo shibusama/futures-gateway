@@ -14,12 +14,14 @@ class DesktopApi:
         self._main_url = ""
         self._quit_callback = None
         self._reload_gateway = None
+        self._runtime = None
 
-    def bind(self, window, main_url: str, *, quit_callback=None, reload_gateway=None) -> None:
+    def bind(self, window, main_url: str, *, quit_callback=None, reload_gateway=None, runtime=None) -> None:
         self._window = window
         self._main_url = main_url
         self._quit_callback = quit_callback
         self._reload_gateway = reload_gateway
+        self._runtime = runtime
 
     def enter_main(self) -> str:
         """登录成功后放大窗口；页面由 loading 自己跳转到交易界面。"""
@@ -154,3 +156,40 @@ class DesktopApi:
             return json.dumps({"ok": True, "msg": "正在打开账号配置…"}, ensure_ascii=False)
         except OSError as exc:
             return json.dumps({"ok": False, "msg": str(exc)}, ensure_ascii=False)
+
+    def reload_page(self) -> str:
+        if self._window is None:
+            return json.dumps({"ok": False, "msg": "窗口不可用"}, ensure_ascii=False)
+        try:
+            self._window.evaluate_js(
+                "window.__fgSoftRefresh ? window.__fgSoftRefresh() : location.reload()"
+            )
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        except OSError as exc:
+            return json.dumps({"ok": False, "msg": str(exc)}, ensure_ascii=False)
+
+    def hide_to_tray(self) -> str:
+        if self._runtime is not None:
+            self._runtime.hide_to_tray()
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        return json.dumps({"ok": False, "msg": "桌面运行时不可用"}, ensure_ascii=False)
+
+    def quit_app(self) -> str:
+        if self._quit_callback is not None:
+            self._quit_callback()
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        return json.dumps({"ok": False, "msg": "无法退出"}, ensure_ascii=False)
+
+    def uninstall_app(self) -> str:
+        from .uninstall import run_uninstall
+
+        run_uninstall(after_launch=self._quit_callback)
+        return json.dumps({"ok": True, "msg": "正在启动卸载程序…"}, ensure_ascii=False)
+
+    def set_titlebar_theme(self, dark: bool) -> str:
+        from .win_titlebar import apply_titlebar_theme
+
+        if self._window is None:
+            return json.dumps({"ok": False, "msg": "窗口不可用"}, ensure_ascii=False)
+        ok = apply_titlebar_theme(self._window, dark=bool(dark))
+        return json.dumps({"ok": ok}, ensure_ascii=False)

@@ -6,12 +6,13 @@ import { connect, sendOrder, sendCancel, sendSubscribe, requestQuery, reconnect 
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
 import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./ui_detail.js";
-import { renderTrade, selectTradeSymbol, refreshTradeLive, selectedTradeOrders, cancelableTradeOrders } from "./ui_trade.js";
+import { renderTrade, selectTradeSymbol, refreshTradeLive, selectedTradeOrders, cancelableTradeOrders } from "./ui_trade.js?v=2";
 import { initOfflineDemo, isOfflineMode } from "./offline.js";
 import { initTheme, toggleTheme } from "./theme.js";
 import { bindAboutDialog } from "./about.js";
-import { addWatchlistSymbol, removeWatchlistSymbol, canCancelOrder, exchangeOf } from "./symbols.js";
-import { resolveOffset, orderPrice, orderActionLabel, batchClosePositions, batchReversePositions, batchRolloverPositions, batchExercisePositions, batchSelfHedgePositions, defaultRolloverTarget } from "./order.js";
+import { initDesktopMenu } from "./desktop_menu.js";
+import { addWatchlistSymbol, removeWatchlistSymbol, canCancelOrder, exchangeOf, symbolMeta } from "./symbols.js";
+import { resolveOffset, orderPrice, orderActionLabel, counterpartyPrice, batchClosePositions, batchReversePositions, batchRolloverPositions, batchExercisePositions, batchSelfHedgePositions, defaultRolloverTarget } from "./order.js";
 import { selectedPositions, selectedComboPositions, togglePosSelection, setAllPosSelection, addPositionsToCombo } from "./positions.js";
 
 /* ---------- 视图切换 ---------- */
@@ -105,16 +106,28 @@ function renderHeader(conn) {
 }
 function fmtN(v) { return Number(v || 0).toLocaleString("zh-CN", { maximumFractionDigits: 0 }); }
 
-function submitOrderFlow({ account, symbol, direction, offsetMode, qtyOverride }) {
+function submitOrderFlow({ account, symbol, direction, offsetMode: forcedOffset, qtyOverride }) {
   if (!account) { toast("请先选择账户"); return; }
   if (store.conn !== "open") { toast("网关未连接"); return; }
   const sym = (symbol || store.sel || "").trim();
   if (!sym) { toast("请输入合约代码"); return; }
   const tick = store.ticks[sym];
   if (!tick) { toast("暂无该合约行情"); return; }
-  const offset = offsetMode === "close" ? "close" : resolveOffset(account, sym, direction, offsetMode || store.offsetMode);
-  const price = orderPrice(tick, direction, store.otype, store.limitPx);
+  const priceMode = store.tradePriceMode || (store.otype === "limit" ? "limit" : "counter");
+  let price;
+  if (priceMode === "limit") {
+    store.otype = "limit";
+    const raw = store.limitPx || document.getElementById("trade-limit-input")?.value;
+    price = parseFloat(raw);
+  } else {
+    store.otype = "market";
+    price = counterpartyPrice(tick, direction, false);
+  }
   if (!isFinite(price)) { toast("请输入有效价格"); return; }
+  const mode = forcedOffset === "close"
+    ? "close"
+    : (store.tradeAutoOffset === false ? (store.offsetMode || "open") : "auto");
+  const offset = mode === "close" ? "close" : resolveOffset(account, sym, direction, mode);
   const volume = qtyOverride || store.qty;
   sendOrder({ account, symbol: sym, direction, offset, price, volume });
   toast(`已发送 ${orderActionLabel(direction, offset)} ${volume} 手`);
@@ -182,6 +195,7 @@ function bindEvents() {
 
   bindOrderPanel("", selectSymbol);
   bindOrderPanel("trade-", selectTradeSymbol);
+  bindTradeTicket();
 
   document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
   document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
@@ -481,6 +495,10 @@ function bindEvents() {
     toast("已请求刷新资金与持仓");
   });
   document.getElementById("trade-symbol-input").addEventListener("change", (e) => {
+    if (store.tradeSymbolLocked) {
+      e.target.value = store.sel;
+      return;
+    }
     const code = e.target.value.trim();
     if (!code) return;
     const res = addWatchlistSymbol(code);
@@ -489,11 +507,81 @@ function bindEvents() {
     if (store.conn === "open" && res.ok) sendSubscribe(res.codes);
     render();
   });
-  document.getElementById("trade-clear-btn").addEventListener("click", () => {
-    store.qty = 1;
-    store.dir = "buy";
-    store.offsetMode = "auto";
+}
+
+function bindTradeTicket() {
+  document.getElementById("trade-ticket-scope")?.addEventListener("change", (e) => {
+    store.tradeTicketScope = e.target.value;
+    render();
+  });
+  document.getElementById("trade-symbol-lock")?.addEventListener("click", () => {
+    store.tradeSymbolLocked = !store.tradeSymbolLocked;
+    render();
+  });
+  document.getElementById("trade-auto-offset")?.addEventListener("change", (e) => {
+    store.tradeAutoOffset = e.target.checked;
+    if (e.target.checked) store.offsetMode = "auto";
+    else if (store.offsetMode === "auto") store.offsetMode = "open";
+    render();
+  });
+  document.getElementById("trade-cancel-original")?.addEventListener("change", (e) => {
+    store.tradeCancelOriginal = e.target.checked;
+  });
+  document.getElementById("trade-cancel-original-n")?.addEventListener("change", (e) => {
+    store.tradeCancelOriginalN = Math.max(1, parseInt(e.target.value, 10) || 2);
+  });
+  document.getElementById("trade-price-counter")?.addEventListener("change", (e) => {
+    if (!e.target.checked) return;
+    store.tradePriceMode = "counter";
     store.otype = "market";
+    document.getElementById("trade-price-limit").checked = false;
+    render();
+  });
+  document.getElementById("trade-price-limit")?.addEventListener("change", (e) => {
+    if (!e.target.checked) return;
+    store.tradePriceMode = "limit";
+    store.otype = "limit";
+    document.getElementById("trade-price-counter").checked = false;
+    const t = store.ticks[store.sel];
+    const li = document.getElementById("trade-limit-input");
+    if (t && li && !li.value) li.value = t.price;
+    render();
+  });
+  document.getElementById("trade-limit-input")?.addEventListener("change", (e) => {
+    store.limitPx = e.target.value;
+    store.tradePriceMode = "limit";
+    store.otype = "limit";
+    document.getElementById("trade-price-limit").checked = true;
+    document.getElementById("trade-price-counter").checked = false;
+    render();
+  });
+  const nudgePrice = (delta) => {
+    store.tradePriceMode = "limit";
+    store.otype = "limit";
+    document.getElementById("trade-price-limit").checked = true;
+    document.getElementById("trade-price-counter").checked = false;
+    const meta = symbolMeta(store.sel);
+    const step = meta?.tick ?? 1;
+    const dec = meta?.dec ?? 0;
+    const li = document.getElementById("trade-limit-input");
+    const t = store.ticks[store.sel];
+    let px = parseFloat(li?.value);
+    if (!isFinite(px)) px = t?.price || 0;
+    px = Math.max(0, px + delta * step);
+    store.limitPx = px.toFixed(dec);
+    if (li) li.value = store.limitPx;
+    render();
+  };
+  document.getElementById("trade-price-up")?.addEventListener("click", () => nudgePrice(1));
+  document.getElementById("trade-price-down")?.addEventListener("click", () => nudgePrice(-1));
+  document.getElementById("trade-offset-open")?.addEventListener("click", () => {
+    store.tradeAutoOffset = false;
+    store.offsetMode = "open";
+    render();
+  });
+  document.getElementById("trade-offset-close")?.addEventListener("click", () => {
+    store.tradeAutoOffset = false;
+    store.offsetMode = "close";
     render();
   });
 }
@@ -557,16 +645,16 @@ function bindOrderPanel(prefix, onSymbolChange) {
   });
   document.getElementById(`${p}limit-input`)?.addEventListener("change", (e) => { store.limitPx = e.target.value; });
 
-  document.getElementById(`${p}offset-auto`)?.addEventListener("click", () => { store.offsetMode = "auto"; render(); });
-  document.getElementById(`${p}offset-open`)?.addEventListener("click", () => { store.offsetMode = "open"; render(); });
-  document.getElementById(`${p}offset-close`)?.addEventListener("click", () => { store.offsetMode = "close"; render(); });
+  document.getElementById(`${p}offset-auto`)?.addEventListener("click", () => { store.offsetMode = "auto"; store.tradeAutoOffset = true; render(); });
+  document.getElementById(`${p}offset-open`)?.addEventListener("click", () => { store.offsetMode = "open"; if (p) store.tradeAutoOffset = false; render(); });
+  document.getElementById(`${p}offset-close`)?.addEventListener("click", () => { store.offsetMode = "close"; if (p) store.tradeAutoOffset = false; render(); });
 
   document.getElementById(`${p}submit-btn`)?.addEventListener("click", () => {
     submitOrderFlow({
       account: store.activeAcct,
       symbol: store.sel,
       direction: store.dir,
-      offsetMode: p ? store.offsetMode : "open",
+      offsetMode: p ? (store.tradeAutoOffset === false ? store.offsetMode : "auto") : "open",
     });
   });
 }
@@ -639,6 +727,7 @@ try {
   }
 }
 bindAboutDialog();
+initDesktopMenu();
 initTheme();
 window.__fgSoftRefresh = softRefresh;
 

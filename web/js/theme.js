@@ -10,6 +10,17 @@ export function effectiveDark() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+/** Sync Windows native title bar with app theme (desktop only). */
+async function syncNativeTitlebar() {
+  const api = window.pywebview?.api;
+  if (!api?.set_titlebar_theme) return;
+  try {
+    await api.set_titlebar_theme(effectiveDark());
+  } catch {
+    /* not in desktop shell */
+  }
+}
+
 /** @param {"system"|"light"|"dark"} theme */
 export function applyTheme(theme) {
   if (theme === "system") {
@@ -29,6 +40,7 @@ export function applyTheme(theme) {
   }
   document.documentElement.style.colorScheme = effectiveDark() ? "dark" : "light";
   updateThemeButton();
+  syncNativeTitlebar();
   window.dispatchEvent(new CustomEvent("theme-change"));
 }
 
@@ -64,10 +76,14 @@ export function updateThemeButton() {
 }
 
 if (typeof window !== "undefined") {
+  window.addEventListener("pywebviewready", () => {
+    syncNativeTitlebar();
+  });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (!document.documentElement.dataset.theme) {
       document.documentElement.style.colorScheme = effectiveDark() ? "dark" : "light";
       updateThemeButton();
+      syncNativeTitlebar();
       window.dispatchEvent(new CustomEvent("theme-change"));
     }
   });

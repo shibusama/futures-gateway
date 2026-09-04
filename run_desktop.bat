@@ -32,5 +32,8 @@ set "PY=C:\Users\13191\fg-venv\Scripts\python.exe"
 if not exist "config.json" (
     echo [hint] config.json not found - will be created from example on first run.
 )
+echo [preflight] cleaning up leftover 期界 processes (if any)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and ($_.CommandLine -match 'desktop_app\.py|gateway\.main|--gateway-internal') } | ForEach-Object { Write-Host ('  kill PID ' + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+timeout /t 1 /nobreak >nul
 "%PY%" desktop_app.py
 if errorlevel 1 pause

@@ -13,6 +13,12 @@ export const store = {
   otype: "market",
   limitPx: "",
   offsetMode: "auto",       // auto | open | close（通用下单）
+  tradeAutoOffset: true,
+  tradePriceMode: "counter", // counter=对价 | limit=挂价
+  tradeCancelOriginal: false,
+  tradeCancelOriginalN: 2,
+  tradeSymbolLocked: false,
+  tradeTicketScope: "all",
 
   ticks: {},                // symbol -> tick 数据（网关推送，最新一笔）
   lastTicks: {},            // symbol -> 最后一次有效 tick（断流时保留）

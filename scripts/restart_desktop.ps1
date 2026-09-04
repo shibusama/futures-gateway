@@ -5,7 +5,7 @@ param(
 )
 
 if (-not $Root) {
-    $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+    $Root = Split-Path -Parent $PSScriptRoot
 }
 $Py = Join-Path $Root ".venv\Scripts\pythonw.exe"
 if (-not (Test-Path $Py)) {

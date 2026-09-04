@@ -84,6 +84,5 @@ echo.
 echo Done. Run:
 echo   dist\FuturesTerminal\FuturesTerminal.exe
 echo.
-echo Fast rebuild: build_desktop_fast.bat
 echo Full release: build_desktop_release.bat
 if not defined BUILD_NO_PAUSE pause

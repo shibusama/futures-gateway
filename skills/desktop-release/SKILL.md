@@ -31,7 +31,7 @@ description: >-
 build_desktop_release.bat
 ```
 
-- 日常仅验证 exe 可用 `build_desktop_fast.bat`，但**正式发版用 release 脚本**（含 zip、可选 Setup）
+- 日常仅验证 exe 可用 `build_desktop_exe.bat`（只出 exe），但**正式发版用 release 脚本**（含 zip、可选 Setup）
 - 产物：`dist/FuturesTerminal/`、`dist/FuturesTerminal-win64.zip`、可选 `dist/installer/FuturesTerminal-Setup-{ver}.exe`
 
 若 zip 未生成，用 PowerShell：

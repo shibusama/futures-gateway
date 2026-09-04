@@ -7,7 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <title>期界 · 期货交易终端（CTP 网关版）</title>
-<link rel="stylesheet" href="css/styles.css" />
+<link rel="stylesheet" href="css/styles.css?v=6" />
 </head>
 <body>
 <div class="app">
@@ -23,6 +23,29 @@
       <button id="nav-detail" class="nt">账户明细</button>
     </div>
     <button type="button" id="theme-toggle" class="theme-btn" aria-pressed="false" title="切换到深色主题">深色</button>
+    <div class="header-menus" id="desktop-menus" hidden>
+      <div class="header-menu">
+        <button type="button" id="menu-file-btn" class="theme-btn header-menu-btn" aria-haspopup="menu" aria-expanded="false">文件 ▾</button>
+        <div id="menu-file-drop" class="header-menu-drop" hidden role="menu" aria-label="文件">
+          <button type="button" class="header-menu-item" data-action="reload" role="menuitem">刷新页面</button>
+          <button type="button" class="header-menu-item" data-action="hide-tray" role="menuitem">隐藏到托盘</button>
+          <hr class="header-menu-sep" />
+          <button type="button" class="header-menu-item" data-action="quit" role="menuitem">退出</button>
+        </div>
+      </div>
+      <div class="header-menu">
+        <button type="button" id="menu-help-btn" class="theme-btn header-menu-btn" aria-haspopup="menu" aria-expanded="false">帮助 ▾</button>
+        <div id="menu-help-drop" class="header-menu-drop" hidden role="menu" aria-label="帮助">
+          <button type="button" class="header-menu-item" data-action="about" role="menuitem">关于</button>
+          <button type="button" class="header-menu-item" data-action="check-update" role="menuitem">检查更新</button>
+          <button type="button" class="header-menu-item" data-action="export-diagnostics" role="menuitem">导出诊断包</button>
+          <hr class="header-menu-sep" />
+          <button type="button" class="header-menu-item" data-action="account-setup" role="menuitem">账号配置</button>
+          <hr class="header-menu-sep" />
+          <button type="button" class="header-menu-item danger" data-action="uninstall" role="menuitem">卸载…</button>
+        </div>
+      </div>
+    </div>
     <button type="button" id="reload-btn" class="theme-btn" title="刷新页面（F5）">刷新</button>
     <button type="button" id="about-btn" class="theme-btn" title="关于">关于</button>
     <div class="clock" id="clock"></div>
@@ -207,40 +230,75 @@
           </div>
         </div>
         <aside class="panel trade-ticket">
-          <div class="panel-title">下单板</div>
-          <div class="trade-symbol-row">
-            <label for="trade-symbol-input">合约</label>
-            <input id="trade-symbol-input" type="text" class="trade-symbol-input" autocomplete="off" spellcheck="false" />
+          <div class="ticket-tabs">
+            <button type="button" id="trade-ticket-tab-std" class="ticket-tab active">下单板</button>
+            <button type="button" id="trade-ticket-tab-triple" class="ticket-tab" disabled title="开发中">三键下单板</button>
           </div>
-          <div class="t-price">现价 <b id="trade-t-price">—</b></div>
-          <div class="dir-tabs">
-            <button id="trade-dir-buy" type="button" class="dt buy">买入</button>
-            <button id="trade-dir-sell" type="button" class="dt sell">卖出</button>
-          </div>
-          <div class="trade-offset-row">
-            <span class="trade-offset-label">开平</span>
-            <div class="otype-row trade-offset-tabs">
-              <button id="trade-offset-auto" type="button" class="seg active">自动</button>
-              <button id="trade-offset-open" type="button" class="seg">开仓</button>
-              <button id="trade-offset-close" type="button" class="seg">平仓</button>
+          <div class="ticket-body">
+            <div class="ticket-top">
+              <select id="trade-ticket-scope" class="ticket-scope" aria-label="委托范围">
+                <option value="all">全部</option>
+                <option value="working">可撤</option>
+                <option value="today">当日</option>
+              </select>
+              <button type="button" id="trade-symbol-lock" class="ticket-lock" title="锁定合约" aria-label="锁定合约">🔒</button>
+            </div>
+            <div class="ticket-symbol-line">
+              <input id="trade-symbol-input" type="text" class="ticket-symbol-input" autocomplete="off" spellcheck="false" aria-label="合约" />
+              <label class="ticket-mini-check"><input type="checkbox" id="trade-arbitrage" disabled /> 套利</label>
+              <label class="ticket-mini-check"><input type="checkbox" id="trade-algo-order" disabled /> 下单算法</label>
+            </div>
+            <div id="trade-t-change" class="ticket-change">—</div>
+            <div class="ticket-dir-row">
+              <button type="button" id="trade-dir-buy" class="ticket-dir buy">买入</button>
+              <button type="button" id="trade-dir-sell" class="ticket-dir sell">卖出</button>
+            </div>
+            <div class="ticket-check-row">
+              <label class="ticket-check"><input type="checkbox" id="trade-auto-offset" checked /> 自动开平</label>
+              <label class="ticket-check">
+                <input type="checkbox" id="trade-cancel-original" /> 撤原单
+                <input id="trade-cancel-original-n" class="ticket-mini-num" type="number" min="1" max="9" value="2" aria-label="撤原单档数" />
+              </label>
+            </div>
+            <div id="trade-offset-manual" class="ticket-offset-manual" hidden>
+              <button type="button" id="trade-offset-open" class="ticket-seg">开仓</button>
+              <button type="button" id="trade-offset-close" class="ticket-seg">平仓</button>
+              <button type="button" id="trade-offset-auto" class="ticket-seg" hidden>自动</button>
+            </div>
+            <div class="ticket-price-row">
+              <label class="ticket-check"><input type="checkbox" id="trade-price-counter" checked /> 对价</label>
+              <label class="ticket-check"><input type="checkbox" id="trade-price-limit" /> 挂价</label>
+              <div class="ticket-price-stepper">
+                <button type="button" id="trade-price-down" aria-label="降价">−</button>
+                <input id="trade-limit-input" class="ticket-price-input" type="number" step="any" aria-label="委托价格" />
+                <button type="button" id="trade-price-up" aria-label="涨价">+</button>
+              </div>
+            </div>
+            <div class="ticket-depth">
+              <span id="trade-qty-hint" class="ticket-qty-hint">≤ — 手</span>
+              <span id="trade-limit-up" class="ticket-limit up">涨 —</span>
+              <span id="trade-bid1" class="ticket-l1">① —</span>
+              <span id="trade-ask1" class="ticket-l1">① —</span>
+              <span id="trade-limit-down" class="ticket-limit down">跌 —</span>
+            </div>
+            <div class="ticket-qty-row">
+              <span class="ticket-qty-label">手数</span>
+              <div class="ticket-stepper">
+                <button id="trade-qty-minus" type="button" aria-label="减少手数">−</button>
+                <input id="trade-qty-input" type="number" min="1" max="999" value="1" aria-label="下单手数" />
+                <button id="trade-qty-plus" type="button" aria-label="增加手数">+</button>
+              </div>
+            </div>
+            <p id="trade-pos-hint" class="ticket-pos-hint" hidden></p>
+            <div class="ticket-meta">
+              <div>保证金: <b id="trade-margin-est">—</b></div>
+              <div>手续费: <span id="trade-comm-est">开平 —，平今 —</span></div>
+            </div>
+            <div class="ticket-actions">
+              <button id="trade-submit-btn" type="button" class="ticket-submit buy">下单</button>
+              <button id="trade-cond-order" type="button" class="ticket-cond" disabled title="开发中">条件单</button>
             </div>
           </div>
-          <p id="trade-pos-hint" class="trade-pos-hint" hidden></p>
-          <div class="qty-row"><span>手数</span>
-            <div class="stepper">
-              <button id="trade-qty-minus" type="button" aria-label="减少手数">−</button>
-              <input id="trade-qty-input" type="number" min="1" max="999" value="1" aria-label="下单手数" />
-              <button id="trade-qty-plus" type="button" aria-label="增加手数">+</button>
-            </div>
-          </div>
-          <div class="otype-row">
-            <button id="trade-otype-market" type="button" class="seg">市价</button>
-            <button id="trade-otype-limit" type="button" class="seg">限价</button>
-          </div>
-          <input id="trade-limit-input" class="px-input" type="number" style="display:none" placeholder="委托价格" aria-label="委托限价" />
-          <div class="sim-note">自动开平：有反向持仓则平仓，否则开仓</div>
-          <button id="trade-submit-btn" type="button" class="big-btn buy">买入开多 1 手</button>
-          <button id="trade-clear-btn" type="button" class="close-btn trade-clear-btn">清空</button>
         </aside>
       </div>
       <section class="panel trade-bottom">
@@ -251,6 +309,7 @@
           <button id="trade-tab-combo" type="button" class="bt">自组合持仓列表</button>
         </div>
         <div class="trade-bottom-body">
+          <div class="trade-bottom-toolbar-slot">
           <div class="trade-pos-toolbar" id="trade-pos-toolbar" hidden>
             <div class="trade-fill-modes">
               <label class="trade-radio"><input type="radio" name="trade-pos-mode" value="single" checked /> 持仓</label>
@@ -341,6 +400,7 @@
               <button type="button" id="trade-combo-reverse" class="trade-act-btn">市价反手</button>
             </div>
             <button type="button" id="trade-combo-help" class="trade-help-btn" title="自组合说明">?</button>
+          </div>
           </div>
           <div id="trade-tables" class="tbl-wrap trade-table-area"></div>
         </div>
@@ -456,6 +516,6 @@
   </div>
 
 </div>
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=3"></script>
 </body>
 </html>

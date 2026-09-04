@@ -301,9 +301,9 @@ def run_desktop() -> int:
 
     from .api import DesktopApi
     from .logging import rotate_if_needed
-    from .menu import build_menu
     from .runtime import DesktopRuntime
     from .tray import TrayController
+    from .win_titlebar import apply_titlebar_theme, system_prefers_dark
     from gateway.config import load_config
 
     rotate_if_needed(_log_path())
@@ -360,10 +360,17 @@ def run_desktop() -> int:
         main_url,
         quit_callback=runtime.request_quit,
         reload_gateway=reload_gateway_after_config_save,
+        runtime=runtime,
     )
     runtime.window = window
     runtime.api = api
     window.events.closing += runtime.on_closing
+
+    def sync_native_titlebar(window_ref, *, dark: bool | None = None) -> None:
+        apply_titlebar_theme(window_ref, dark=system_prefers_dark() if dark is None else dark)
+
+    window.events.before_show += lambda w: sync_native_titlebar(w)
+    window.events.shown += lambda w: sync_native_titlebar(w)
 
     runtime.tray = TrayController(on_show=runtime.show_window, on_quit=runtime.request_quit)
     runtime.tray.start()
@@ -389,7 +396,7 @@ def run_desktop() -> int:
     threading.Thread(target=boot_main_ui, daemon=True).start()
 
     try:
-        webview.start(menu=build_menu(runtime))
+        webview.start()
     finally:
         if runtime.tray is not None:
             runtime.tray.stop()

@@ -1,9 +1,9 @@
 /**
  * ui_trade.js — 通用下单页（专业终端风格：资金条 + 自选 + 下单板 + 持仓/成交）
  */
-import { store, getTick, tickIsLive, acctFloat, positionLivePnl, emit } from "./store.js";
+import { store, getTick, tickIsLive, acctFloat, positionLivePnl, emit, contractMult } from "./store.js";
 import { getWatchlist, symbolMeta, exchangeOf, canCancelOrder } from "./symbols.js";
-import { orderActionLabel, positionFor } from "./order.js";
+import { orderActionLabel, positionFor, counterpartyPrice } from "./order.js";
 import {
   positionKey, posDirLabel, filterPositions, filterComboPositions, positionMarketValue, getManualSLTP,
   groupPositionsByProduct, comboPositionRows, loadCombos, comboFormulaText,
@@ -320,13 +320,41 @@ function fmtLinkClock(ms) {
 }
 
 function setStatusVal(id, text, tone) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = text;
-  el.className = `trade-st-val${tone ? ` ${tone}` : ""}`;
+  // 走马灯克隆了第二份指标（用 data-st-key 而非 id），需同时更新，避免旧值残留
+  const els = document.querySelectorAll(`#${id}, [data-st-key="${id}"]`);
+  if (!els.length) return;
+  const cls = `trade-st-val${tone ? ` ${tone}` : ""}`;
+  els.forEach((el) => {
+    el.textContent = text;
+    el.className = cls;
+  });
+}
+
+/* 把资金指标条包装成无缝走马灯：内容两段首尾相接，动画从 0 平移到 -50% 循环。
+   一段保留 id（供原逻辑更新），另一段用 data-st-key，由 setStatusVal 一并刷新。 */
+function initStatusMarquee() {
+  if (initStatusMarquee.done) return;
+  const box = document.querySelector(".trade-status-metrics");
+  if (!box) return;
+  initStatusMarquee.done = true;
+  const track = document.createElement("div");
+  track.className = "trade-status-track";
+  const seg = document.createElement("div");
+  seg.className = "trade-status-seg";
+  Array.from(box.children).forEach((n) => seg.appendChild(n));
+  const seg2 = seg.cloneNode(true);
+  seg2.querySelectorAll("[id]").forEach((el) => {
+    const key = el.id;
+    el.removeAttribute("id");
+    el.setAttribute("data-st-key", key);
+  });
+  track.appendChild(seg);
+  track.appendChild(seg2);
+  box.appendChild(track);
 }
 
 export function renderTradeStatusBar(account) {
+  initStatusMarquee();
   const clock = document.getElementById("trade-status-clock");
   if (clock) {
     clock.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
@@ -598,39 +626,109 @@ export function cancelableTradeOrders(account) {
 }
 
 function renderTradeTicket(account) {
-  const sym = currentSymbol();
   const tick = getTick(store.sel);
+  const meta = symbolMeta(store.sel);
+  const dec = meta?.dec ?? 0;
   const price = tick?.price > 0 ? tick.price : 0;
   const pos = positionFor(account, store.sel);
   const offset = store.offsetMode || "auto";
+  const autoOffset = store.tradeAutoOffset !== false;
 
-  document.getElementById("trade-symbol-input").value = store.sel;
-  document.getElementById("trade-t-price").textContent = price ? fmt(price, sym.dec) : "—";
-  document.getElementById("trade-t-price").className = price ? cls((tick.pre_close ? price - tick.pre_close : 0)) : "";
+  const symInput = document.getElementById("trade-symbol-input");
+  if (symInput) {
+    symInput.value = store.sel;
+    symInput.disabled = !!store.tradeSymbolLocked;
+  }
+  const scopeSel = document.getElementById("trade-ticket-scope");
+  if (scopeSel && scopeSel.value !== (store.tradeTicketScope || "all")) {
+    scopeSel.value = store.tradeTicketScope || "all";
+  }
+  const lockBtn = document.getElementById("trade-symbol-lock");
+  if (lockBtn) lockBtn.classList.toggle("active", !!store.tradeSymbolLocked);
 
-  document.getElementById("trade-dir-buy").className = `dt buy${store.dir === "buy" ? " active" : ""}`;
-  document.getElementById("trade-dir-sell").className = `dt sell${store.dir === "sell" ? " active" : ""}`;
-  document.getElementById("trade-offset-auto").className = `seg${offset === "auto" ? " active" : ""}`;
-  document.getElementById("trade-offset-open").className = `seg${offset === "open" ? " active" : ""}`;
-  document.getElementById("trade-offset-close").className = `seg${offset === "close" ? " active" : ""}`;
+  const chgEl = document.getElementById("trade-t-change");
+  if (chgEl) {
+    if (price && tick?.pre_close > 0) {
+      const chg = price - tick.pre_close;
+      chgEl.textContent = (chg >= 0 ? "+" : "") + fmt(chg, dec);
+      chgEl.className = `ticket-change ${cls(chg)}`;
+    } else {
+      chgEl.textContent = price ? fmt(price, dec) : "—";
+      chgEl.className = "ticket-change";
+    }
+  }
+
+  document.getElementById("trade-dir-buy").className = `ticket-dir buy${store.dir === "buy" ? " active" : ""}`;
+  document.getElementById("trade-dir-sell").className = `ticket-dir sell${store.dir === "sell" ? " active" : ""}`;
+
+  const autoChk = document.getElementById("trade-auto-offset");
+  if (autoChk) autoChk.checked = autoOffset;
+  const cancelChk = document.getElementById("trade-cancel-original");
+  if (cancelChk) cancelChk.checked = !!store.tradeCancelOriginal;
+  const cancelN = document.getElementById("trade-cancel-original-n");
+  if (cancelN) cancelN.value = String(store.tradeCancelOriginalN || 2);
+
+  const manualRow = document.getElementById("trade-offset-manual");
+  if (manualRow) manualRow.hidden = autoOffset;
+  if (!autoOffset) {
+    document.getElementById("trade-offset-open").className = `ticket-seg${offset === "open" ? " active" : ""}`;
+    document.getElementById("trade-offset-close").className = `ticket-seg${offset === "close" ? " active" : ""}`;
+  }
+
+  const priceMode = store.tradePriceMode || (store.otype === "limit" ? "limit" : "counter");
+  const counterChk = document.getElementById("trade-price-counter");
+  const limitChk = document.getElementById("trade-price-limit");
+  if (counterChk) counterChk.checked = priceMode === "counter";
+  if (limitChk) limitChk.checked = priceMode === "limit";
+
+  const li = document.getElementById("trade-limit-input");
+  if (li) {
+    const cp = tick ? counterpartyPrice(tick, store.dir, false) : NaN;
+    const showPx = priceMode === "limit"
+      ? (store.limitPx || (price ? price.toFixed(dec) : ""))
+      : (isFinite(cp) ? cp.toFixed(dec) : (price ? price.toFixed(dec) : ""));
+    if (document.activeElement !== li) li.value = showPx;
+    li.readOnly = priceMode === "counter";
+  }
+
+  const limits = estimateLimitPrices(tick, store.sel);
+  const bid1 = tick?.bid1 > 0 ? tick.bid1 : null;
+  const ask1 = tick?.ask1 > 0 ? tick.ask1 : null;
+  const avail = pos?.avail > 0 ? pos.avail : (pos?.volume || 0);
+  const qtyHint = document.getElementById("trade-qty-hint");
+  if (qtyHint) qtyHint.textContent = pos ? `≤ ${avail} 手` : `≤ — 手`;
+  const upEl = document.getElementById("trade-limit-up");
+  if (upEl) upEl.textContent = limits.up ? `涨 ${fmt(limits.up, dec)}` : "涨 —";
+  const dnEl = document.getElementById("trade-limit-down");
+  if (dnEl) dnEl.textContent = limits.down ? `跌 ${fmt(limits.down, dec)}` : "跌 —";
+  const bidEl = document.getElementById("trade-bid1");
+  if (bidEl) bidEl.textContent = bid1 ? `① ${fmt(bid1, dec)}` : "① —";
+  const askEl = document.getElementById("trade-ask1");
+  if (askEl) askEl.textContent = ask1 ? `① ${fmt(ask1, dec)}` : "① —";
 
   document.getElementById("trade-qty-input").value = store.qty;
-  document.getElementById("trade-otype-market").className = `seg${store.otype === "market" ? " active" : ""}`;
-  document.getElementById("trade-otype-limit").className = `seg${store.otype === "limit" ? " active" : ""}`;
-  const li = document.getElementById("trade-limit-input");
-  li.style.display = store.otype === "limit" ? "block" : "none";
-  if (store.otype === "limit" && !li.value && price) li.value = price.toFixed(sym.dec);
 
-  const resolved = offset === "auto"
+  const orderPx = priceMode === "limit"
+    ? parseFloat(li?.value)
+    : (tick ? counterpartyPrice(tick, store.dir, false) : price);
+  const marginEl = document.getElementById("trade-margin-est");
+  if (marginEl) {
+    marginEl.textContent = isFinite(orderPx) && orderPx > 0
+      ? fmt(estimateMargin(store.sel, orderPx, store.qty, account, pos), 0)
+      : "—";
+  }
+
+  const resolved = autoOffset
     ? (pos && pos.avail > 0
       ? (store.dir === "sell" && String(pos.direction).includes("Long") ? "close"
         : store.dir === "buy" && !String(pos.direction).includes("Long") ? "close" : "open")
       : "open")
     : offset;
 
-  const label = orderActionLabel(store.dir, resolved === "close" ? "close" : "open");
-  document.getElementById("trade-submit-btn").textContent = `${label} ${store.qty} 手`;
-  document.getElementById("trade-submit-btn").className = `big-btn ${store.dir === "buy" ? "buy" : "sell"}`;
+  const submitBtn = document.getElementById("trade-submit-btn");
+  submitBtn.textContent = "下单";
+  submitBtn.className = `ticket-submit ${store.dir === "buy" ? "buy" : "sell"}`;
+  submitBtn.title = `${orderActionLabel(store.dir, resolved === "close" ? "close" : "open")} ${store.qty} 手`;
 
   const hint = document.getElementById("trade-pos-hint");
   if (pos && pos.volume > 0) {
@@ -640,6 +738,21 @@ function renderTradeTicket(account) {
   } else {
     hint.hidden = true;
   }
+}
+
+function estimateLimitPrices(tick, symbol) {
+  const pre = tick?.pre_close;
+  if (!(pre > 0)) return { up: null, down: null };
+  const prod = String(symbol || "").replace(/\d+$/, "").toUpperCase();
+  const ratio = ["IF", "IH", "IC", "IM", "T", "TF", "TS"].includes(prod) ? 0.1 : 0.06;
+  return { up: pre * (1 + ratio), down: pre * (1 - ratio) };
+}
+
+function estimateMargin(symbol, price, qty, account, pos) {
+  if (pos && pos.volume > 0 && pos.margin > 0) {
+    return Math.round((pos.margin / pos.volume) * qty);
+  }
+  return Math.round(price * qty * contractMult(symbol) * 0.1);
 }
 
 function renderTradeBottom(account) {
