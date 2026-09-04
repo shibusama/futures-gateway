@@ -210,6 +210,8 @@ async def websocket_handler(request):
                 if cmd == "query":
                     mgr.query_all()  # 触发所有账号刷新数据，结果经广播推回
                     await ws.send_str(json.dumps({"type": "system", "cmd": "query_ok"}, ensure_ascii=False))
+                elif cmd == "ping":
+                    await ws.send_str(json.dumps({"type": "pong"}, ensure_ascii=False))
                 elif cmd == "order":
                     try:
                         sig = (

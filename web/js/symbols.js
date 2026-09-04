@@ -50,16 +50,22 @@ function normCode(raw) {
   return m[1] + m[2];
 }
 
+let codesCache = null;
+let watchlistCache = null;
+
 function loadCodes() {
+  if (codesCache) return codesCache;
+  let list = null;
   try {
     const raw = localStorage.getItem(WATCHLIST_KEY);
-    if (!raw) return [...DEFAULT_CODES];
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr) || !arr.length) return [...DEFAULT_CODES];
-    return arr.map(normCode).filter(Boolean);
-  } catch (_) {
-    return [...DEFAULT_CODES];
-  }
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) list = arr.map(normCode).filter(Boolean);
+    }
+  } catch (_) { /* ignore */ }
+  if (!list || !list.length) list = [...DEFAULT_CODES];
+  codesCache = list;
+  return list;
 }
 
 function saveCodes(codes) {
@@ -69,17 +75,21 @@ function saveCodes(codes) {
     if (n && !uniq.includes(n)) uniq.push(n);
   });
   if (!uniq.length) uniq.push(DEFAULT_CODES[0]);
-  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(uniq));
+  codesCache = uniq;
+  watchlistCache = null;
+  try {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(uniq));
+  } catch (_) { /* ignore */ }
   return uniq;
 }
 
-/** 根据合约代码推断交易所（与 gateway/ctp.py 保持一致） */
+/** 根据合约代码推断交易所（与 gateway/ctp.py 保持一致；统一转大写再判，避免 SC/sr 等误判 SHFE） */
 export function exchangeOf(symbol) {
-  const s = String(symbol || "");
-  if (s.startsWith("IF") || s.startsWith("IH") || s.startsWith("IC") || s.startsWith("IM")) return "CFFEX";
-  if (s.startsWith("sc") || s.startsWith("lu") || s.startsWith("ec") || s.startsWith("nr")) return "INE";
-  if (/^(au|ag|cu|rb|al|zn|ni|sn|pb|ss|fu|ru|bu|sp|ao|bc|br|wr)/i.test(s)) return "SHFE";
-  if (/^(m|y|p|a|b|c|cs|jd|lh|rr|l|v|pp|eb|eg|pg|fb|bb|i|j|jm|qh)/i.test(s)) return "DCE";
+  const s = String(symbol || "").toUpperCase();
+  if (/^(IF|IH|IC|IM)/.test(s)) return "CFFEX";
+  if (/^(SC|LU|EC|NR)/.test(s)) return "INE";
+  if (/^(AU|AG|CU|RB|AL|ZN|NI|SN|PB|SS|FU|RU|BU|SP|AO|BC|BR|WR)/.test(s)) return "SHFE";
+  if (/^(M|Y|P|A|B|C|CS|JD|LH|RR|L|V|PP|EB|EG|PG|FB|BB|I|J|JM|QH)/.test(s)) return "DCE";
   if (/^(SR|CF|TA|MA|FG|ZC|SA|UR|PK|AP|CJ|SF|SM|CY|PF|SH|PX)/.test(s)) return "CZCE";
   return "SHFE";
 }
@@ -87,7 +97,8 @@ export function exchangeOf(symbol) {
 function inferDecTick(prod) {
   const p = prod.toUpperCase();
   if (["IF", "IH", "IC", "IM"].includes(p)) return { dec: 1, tick: 0.2 };
-  if (["AU", "SC"].includes(p)) return { dec: 1, tick: 0.1 };
+  if (["AU"].includes(p)) return { dec: 1, tick: 0.02 };
+  if (["SC"].includes(p)) return { dec: 1, tick: 0.1 };
   if (["I", "JM"].includes(p)) return { dec: 1, tick: 0.5 };
   if (["CU", "AL", "ZN"].includes(p)) return { dec: 0, tick: 10 };
   if (["NI", "SN"].includes(p)) return { dec: 0, tick: 10 };
@@ -107,9 +118,12 @@ export function symbolMeta(code) {
   return { code: n, name: PRODUCT_NAMES[prod.toUpperCase()] || prod.toUpperCase(), dec, tick };
 }
 
-/** 当前自选列表（含元数据） */
+/** 当前自选列表（含元数据，模块级缓存避免每次渲染读盘） */
 export function getWatchlist() {
-  return loadCodes().map((c) => symbolMeta(c)).filter(Boolean);
+  if (watchlistCache) return watchlistCache;
+  const list = loadCodes().map((c) => symbolMeta(c)).filter(Boolean);
+  watchlistCache = list;
+  return list;
 }
 
 export function getWatchlistCodes() {

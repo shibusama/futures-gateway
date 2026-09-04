@@ -4,15 +4,12 @@
 import { store, getTick, tickIsLive, acctFloat, positionLivePnl, emit, contractMult } from "./store.js";
 import { getWatchlist, symbolMeta, exchangeOf, canCancelOrder } from "./symbols.js";
 import { orderActionLabel, positionFor, counterpartyPrice } from "./order.js";
-import { esc } from "./util.js";
+import { esc, fmt, cls } from "./util.js";
 import {
   positionKey, posDirLabel, filterPositions, filterComboPositions, positionMarketValue, getManualSLTP,
   groupPositionsByProduct, comboPositionRows, loadCombos, comboFormulaText,
   tradeStatsByProduct, filterTradeStats,
 } from "./positions.js";
-
-const fmt = (v, d = 0) => Number(v || 0).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
-const cls = (v) => (v >= 0 ? "up" : "down");
 
 function stateAccount() {
   if (store.activeAcct && store.accounts.includes(store.activeAcct)) return store.activeAcct;
@@ -189,8 +186,6 @@ function posEmptyMsg() {
   return "暂无持仓";
 }
 
-function renderPosTableFoot() {}
-
 function positionRowHtml(p, account, opts = {}) {
   const key = positionKey(p);
   const keys = opts.posKeys || [key];
@@ -266,18 +261,24 @@ export function selectTradeSymbol(code) {
   renderTradeWatchlist();
 }
 
+let _lastLiveTableRebuild = 0;
+
+/** tick 驱动的高频整表重建节流到 ~350ms；委托表不随行情变化，彻底移出 tick 路径 */
+function maybeRenderLiveTable(account) {
+  const now = Date.now();
+  if (now - _lastLiveTableRebuild < 350) return;
+  _lastLiveTableRebuild = now;
+  if (store.tradeTab === "pos") renderTradePositions(account);
+  else if (store.tradeTab === "combo") renderTradeComboPositions(account);
+  else if (store.tradeTab === "stats") renderTradeStats(account);
+}
+
 export function refreshTradeLive() {
   patchTradeWatchlistQuotes();
   renderTradeTicket(stateAccount());
   renderTradeStatusBar(stateAccount());
   const account = stateAccount();
-  if (account) {
-    renderTradeOrders(account);
-    if (store.tradeTab === "pos") renderTradePositions(account);
-    else if (store.tradeTab === "combo") renderTradeComboPositions(account);
-    else if (store.tradeTab === "fills") renderTradeFills(account);
-    else if (store.tradeTab === "stats") renderTradeStats(account);
-  }
+  if (account) maybeRenderLiveTable(account);
 }
 
 function renderTradeBar(account) {
@@ -714,7 +715,8 @@ function renderTradeTicket(account) {
   const askEl = document.getElementById("trade-ask1");
   if (askEl) askEl.textContent = ask1 ? `① ${fmt(ask1, dec)}` : "① —";
 
-  document.getElementById("trade-qty-input").value = store.qty;
+  const qtyEl = document.getElementById("trade-qty-input");
+  if (qtyEl && document.activeElement !== qtyEl) qtyEl.value = store.qty;
 
   const orderPx = priceMode === "limit"
     ? parseFloat(li?.value)
@@ -799,46 +801,30 @@ function posTableHead(extraCol = "") {
 
 function renderTradePositions(account) {
   const el = document.getElementById("trade-tables");
-  let rows = filterPositions(store.positions[account] || []);
+  const rows = filterPositions(store.positions[account] || []);
   if ((store.tradePosMode || "single") === "group") {
     renderTradePosGroup(account, rows);
     return;
   }
   if (!rows.length) {
-    renderPosTableFoot(null);
     el.innerHTML = `<div class="empty">${posEmptyMsg()}</div>`;
     return;
   }
   let html = posTableHead();
-  const totals = { volume: 0, margin: 0, float_pnl: 0, mktval: 0, pos_pnl: 0, close_pnl: 0 };
   rows.forEach((p) => {
     html += positionRowHtml(p, account);
-    totals.volume += p.volume || 0;
-    totals.margin += p.margin || 0;
-    totals.float_pnl += positionLivePnl(p);
-    totals.mktval += positionMarketValue(p);
-    totals.pos_pnl += p.position_profit || 0;
-    totals.close_pnl += p.close_profit || 0;
   });
   el.innerHTML = html + "</tbody></table>";
-  renderPosTableFoot({
-    volume: totals.volume,
-    margin: totals.margin,
-    float_pnl: totals.float_pnl,
-    mktval: totals.mktval,
-  });
 }
 
 function renderTradePosGroup(account, rows) {
   const el = document.getElementById("trade-tables");
   const groups = groupPositionsByProduct(rows);
   if (!groups.length) {
-    renderPosTableFoot(null);
     el.innerHTML = `<div class="empty">${posEmptyMsg()}</div>`;
     return;
   }
   let html = posTableHead();
-  const totals = { volume: 0, margin: 0, float_pnl: 0, mktval: 0, pos_pnl: 0, close_pnl: 0 };
   groups.forEach((g) => {
     const pseudo = {
       symbol: g.symbol,
@@ -858,20 +844,8 @@ function renderTradePosGroup(account, rows) {
       symbolLabel: `${g.name} (${g.symbols.join("/")})`,
       posKeys: g.legs.map(positionKey),
     });
-    totals.volume += g.volume;
-    totals.margin += g.margin;
-    totals.float_pnl += g.float_pnl;
-    totals.mktval += g.market_value;
-    totals.pos_pnl += g.position_profit;
-    totals.close_pnl += g.close_profit;
   });
   el.innerHTML = html + "</tbody></table>";
-  renderPosTableFoot({
-    volume: totals.volume,
-    margin: totals.margin,
-    float_pnl: totals.float_pnl,
-    mktval: totals.mktval,
-  });
 }
 
 function comboEmptyMsg() {

@@ -65,6 +65,14 @@ export const store = {
 
 const TICK_STORAGE_KEY = "fg_last_ticks";
 
+let tickSaveTimer = null;
+
+function flushTicksToStorage() {
+  try {
+    localStorage.setItem(TICK_STORAGE_KEY, JSON.stringify(store.lastTicks));
+  } catch (_) { /* ignore */ }
+}
+
 /** 启动时从 localStorage 恢复上次行情快照 */
 export function loadTicksFromStorage() {
   try {
@@ -77,10 +85,24 @@ export function loadTicksFromStorage() {
   } catch (_) { /* ignore */ }
 }
 
+/** 行情快照持久化：节流 1.5s（localStorage 写是同步阻塞，不能每笔 tick 都写），
+    页面隐藏/卸载前强制 flush，避免盘中卡顿。 */
 export function saveTicksToStorage() {
-  try {
-    localStorage.setItem(TICK_STORAGE_KEY, JSON.stringify(store.lastTicks));
-  } catch (_) { /* ignore */ }
+  if (tickSaveTimer) return;
+  tickSaveTimer = setTimeout(() => {
+    tickSaveTimer = null;
+    flushTicksToStorage();
+  }, 1500);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    if (tickSaveTimer) {
+      clearTimeout(tickSaveTimer);
+      tickSaveTimer = null;
+    }
+    flushTicksToStorage();
+  });
 }
 
 /** 取最新 tick：实时优先，否则用最后一次快照 */
@@ -105,8 +127,10 @@ export function applyTick(msg) {
   store.ticks[sym] = tick;
   store.lastTicks[sym] = tick;
   if (!store.tickHistory[sym]) store.tickHistory[sym] = [];
-  store.tickHistory[sym].push(tick);
-  if (store.tickHistory[sym].length > 2000) store.tickHistory[sym].shift();
+  const hist = store.tickHistory[sym];
+  hist.push(tick);
+  // 长度超上限时低频整段裁剪，避免每次 push 都 shift()(O(n)/笔)
+  if (hist.length > 2500) hist.splice(0, hist.length - 2000);
   saveTicksToStorage();
 }
 

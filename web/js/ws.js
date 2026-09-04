@@ -23,6 +23,21 @@ let reconnectDelay = 3000;
 const RECONNECT_BASE = 3000;
 const RECONNECT_MAX = 15000;
 
+let lastMsgAt = 0;            // 最近一次收到任意消息的时刻，用于探测半开连接
+let heartbeatTimer = null;
+let connectTimer = null;      // 连接建立超时
+const HEARTBEAT_MS = 20000;
+const STALE_MS = 50000;       // 超过该时长无任何消息视为断流
+const CONNECT_TIMEOUT_MS = 10000;
+
+function clearHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+function clearConnectTimer() {
+  if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
+}
+
 function stopBalancePolling() {
   clearInterval(balancePollTimer);
   balancePollTimer = null;
@@ -47,7 +62,7 @@ function ensureBalancePolling() {
     send({ cmd: "query" });
     if (attempts >= 8) stopBalancePolling();
   };
-  tick();
+  // 不立即 tick，避免与 onopen 里的 query 重复；2.5s 后若资金仍未就绪再补查
   balancePollTimer = setInterval(tick, 2500);
 }
 
@@ -55,6 +70,8 @@ function teardownSocket() {
   clearTimeout(retryTimer);
   retryTimer = null;
   stopBalancePolling();
+  clearHeartbeat();
+  clearConnectTimer();
   if (!ws) return;
   ws.onopen = null;
   ws.onmessage = null;
@@ -68,12 +85,35 @@ function teardownSocket() {
   ws = null;
 }
 
+/** 心跳：定期发 ping，并检测“无任何消息”的半开连接，主动断开触发重连 */
+function startHeartbeat() {
+  clearHeartbeat();
+  lastMsgAt = Date.now();
+  heartbeatTimer = setInterval(() => {
+    if (store.conn !== "open") { clearHeartbeat(); return; }
+    if (Date.now() - lastMsgAt > STALE_MS) {
+      teardownSocket();
+      scheduleReconnect();
+      return;
+    }
+    send({ cmd: "ping" });
+  }, HEARTBEAT_MS);
+}
+
 export function connect() {
   teardownSocket();
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${location.host}/ws`;
   store.conn = "connecting";
   emit({ type: "conn", status: "connecting" });
+  clearConnectTimer();
+  connectTimer = setTimeout(() => {
+    // 握手迟迟未完成（服务端挂起/网络黑洞）：结束这次 connecting 走重连
+    if (store.conn === "connecting") {
+      teardownSocket();
+      scheduleReconnect();
+    }
+  }, CONNECT_TIMEOUT_MS);
 
   try {
     ws = new WebSocket(url);
@@ -84,6 +124,8 @@ export function connect() {
 
   ws.onopen = () => {
     const reconnected = store.wasConnected;
+    clearConnectTimer();
+    startHeartbeat();
     store.conn = "open";
     store.gatewayLinkAt = Date.now();
     store.reconnectAttempt = 0;
@@ -97,6 +139,7 @@ export function connect() {
   };
 
   ws.onmessage = (e) => {
+    lastMsgAt = Date.now();
     let msg;
     try { msg = JSON.parse(e.data); } catch (_) { return; }
     handle(msg);
@@ -146,6 +189,7 @@ function handle(msg) {
       for (const acc of store.accounts) {
         store.positions[acc] = [];
         store.trades[acc] = [];
+        store.orders[acc] = [];
       }
       emit({ type: "system", data: msg });
       return;
@@ -223,10 +267,12 @@ function handle(msg) {
   }
   if (type === "order") {
     if (!store.orders[account]) store.orders[account] = [];
-    // 用 OrderSysID/OrderRef 去重，最新在前
+    // 去重键：优先 OrderSysID；尚未回报编号时用 合约+OrderRef+时间 兜底，避免重复堆积
+    const keyOf = (o) => o.order_sys_id || `${o.symbol || ""}|${o.order_ref || ""}|${o.time || ""}`;
+    const key = keyOf(msg);
     store.orders[account] = [
       msg,
-      ...store.orders[account].filter((o) => !(o.order_sys_id && o.order_sys_id === msg.order_sys_id)),
+      ...store.orders[account].filter((o) => keyOf(o) !== key),
     ].slice(0, 100);
     emit({ type: "order", account });
     return;

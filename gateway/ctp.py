@@ -578,19 +578,20 @@ class CtpGateway:
 
     @staticmethod
     def _exchange_of(symbol: str) -> str:
-        """根据合约代码前缀推断交易所（顺序敏感）。"""
-        if symbol.startswith(("IF", "IH", "IC", "IM")):
+        """根据合约代码前缀推断交易所（统一转大写再判，避免 SC/sr 等误判 SHFE）。"""
+        s = (symbol or "").upper()
+        if s.startswith(("IF", "IH", "IC", "IM")):
             return "CFFEX"
-        if symbol.startswith(("sc", "lu", "ec", "nr")):
+        if s.startswith(("SC", "LU", "EC", "NR")):
             return "INE"
-        if symbol.startswith(("au", "ag", "cu", "rb", "al", "zn", "ni", "sn", "pb", "ss",
-                              "fu", "ru", "bu", "sp", "ao", "bc", "br", "wr")):
+        if s.startswith(("AU", "AG", "CU", "RB", "AL", "ZN", "NI", "SN", "PB", "SS",
+                         "FU", "RU", "BU", "SP", "AO", "BC", "BR", "WR")):
             return "SHFE"
-        if symbol.startswith(("m", "y", "p", "a", "b", "c", "cs", "jd", "lh", "rr",
-                              "l", "v", "pp", "eb", "eg", "pg", "fb", "bb",
-                              "i", "j", "jm", "qh")):
+        if s.startswith(("M", "Y", "P", "A", "B", "C", "CS", "JD", "LH", "RR",
+                         "L", "V", "PP", "EB", "EG", "PG", "FB", "BB",
+                         "I", "J", "JM", "QH")):
             return "DCE"
-        if symbol.startswith(("SR", "CF", "TA", "MA", "FG", "ZC", "SA", "UR", "PK",
-                              "AP", "CJ", "SF", "SM", "CY", "PF", "SH", "PX")):
+        if s.startswith(("SR", "CF", "TA", "MA", "FG", "ZC", "SA", "UR", "PK",
+                         "AP", "CJ", "SF", "SM", "CY", "PF", "SH", "PX")):
             return "CZCE"
         return "SHFE"

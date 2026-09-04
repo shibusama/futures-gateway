@@ -1,7 +1,7 @@
 /**
  * app.js — 应用入口：装配 store / ws / ui 模块，绑定事件，响应网关推送。
  */
-import { store, totals, emit, getTick } from "./store.js";
+import { store, totals, getTick } from "./store.js";
 import { connect, sendOrder, sendCancel, sendSubscribe, requestQuery, reconnect } from "./ws.js";
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
@@ -13,7 +13,7 @@ import { ensureSession } from "./auth.js";
 import { bindAboutDialog } from "./about.js";
 import { initDesktopMenu } from "./desktop_menu.js";
 import { addWatchlistSymbol, removeWatchlistSymbol, canCancelOrder, exchangeOf, symbolMeta } from "./symbols.js";
-import { resolveOffset, orderPrice, orderActionLabel, counterpartyPrice, batchClosePositions, batchReversePositions, batchRolloverPositions, batchExercisePositions, batchSelfHedgePositions, defaultRolloverTarget } from "./order.js";
+import { resolveOffset, orderActionLabel, counterpartyPrice, batchClosePositions, batchReversePositions, batchRolloverPositions, batchExercisePositions, batchSelfHedgePositions, defaultRolloverTarget } from "./order.js";
 import { selectedPositions, selectedComboPositions, togglePosSelection, setAllPosSelection, addPositionsToCombo } from "./positions.js";
 
 /* ---------- 视图切换 ---------- */
@@ -34,6 +34,20 @@ function render() {
   if (store.view === "overview") renderOverview();
   else if (store.view === "trade") renderTrade();
   else renderDetail();
+}
+
+/* 合并/节流整页渲染：同帧内多次触发只渲染一次，避免 position/balance 爆量时逐条重建 */
+let _renderScheduled = false;
+let _lastRenderAt = 0;
+function scheduleRender(minGapMs = 0) {
+  if (_renderScheduled) return;
+  const wait = Math.max(0, _lastRenderAt + minGapMs - Date.now());
+  _renderScheduled = true;
+  setTimeout(() => {
+    _renderScheduled = false;
+    _lastRenderAt = Date.now();
+    render();
+  }, wait);
 }
 
 function renderHeader(conn) {
@@ -152,8 +166,8 @@ function submitOrderFlow({ account, symbol, direction, offsetMode: forcedOffset,
 
 /* ---------- 事件 ---------- */
 function softRefresh() {
+  // 重连后 onopen 会自动 query/status/subscribe；此处的 requestQuery 在 socket 未 OPEN 时会被丢弃
   reconnect();
-  requestQuery();
   render();
   toast("已刷新");
 }
@@ -738,7 +752,7 @@ function onTickFrame() {
   if (store.view === "detail") refreshDetailLive();
   else if (store.view === "trade") refreshTradeLive();
   else {
-    renderHeader("open");
+    renderHeader(store.conn);
     renderOverview();
   }
 }
@@ -746,20 +760,20 @@ window.addEventListener("ftd-event", (e) => {
   const d = e.detail;
   if (d.type === "conn") {
     renderHeader(d.status);
-    render();
     if (d.status === "open" && d.reconnected) toast("已重新连接到网关");
     else if (d.status === "closed" && d.hadConnection) toast("与网关断开，正在自动重连…");
-  } else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position" || d.type === "history") {
-    render();
+    scheduleRender(0);
   } else if (d.type === "tick") {
     if (!tickRaf) tickRaf = requestAnimationFrame(onTickFrame);
   } else if (d.type === "order" || d.type === "trade") {
-    if (store.view === "trade") renderTrade();
-    else if (store.view === "detail") renderDetail();
+    scheduleRender(0);
   } else if (d.type === "error") {
     toast(d.msg);
   } else if (d.type === "toast") {
     toast(d.msg);
+  } else if (d.type === "system" || d.type === "login" || d.type === "balance" || d.type === "position" || d.type === "history") {
+    // 批量数据事件：合并 + 节流，避免逐条整页重建
+    scheduleRender(250);
   }
 });
 

@@ -8,18 +8,18 @@ function $(sel) {
 }
 
 async function fetchAppInfo() {
+  if (window.pywebview && window.pywebview.api) {
+    try {
+      return JSON.parse(await window.pywebview.api.get_app_info());
+    } catch (_) {
+      /* 桥异常时回退 HTTP */
+    }
+  }
   try {
     const res = await fetch("/api/app-info");
     if (res.ok) return await res.json();
   } catch (_) {
     /* gateway not ready yet */
-  }
-  if (window.pywebview && window.pywebview.api) {
-    await new Promise((resolve) => {
-      if (window.pywebview.api) resolve();
-      else window.addEventListener("pywebviewready", resolve, { once: true });
-    });
-    return JSON.parse(await window.pywebview.api.get_app_info());
   }
   return { desktop: false, version: "—", github: "https://github.com/shibusama/futures-gateway" };
 }

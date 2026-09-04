@@ -22,7 +22,8 @@ function seedFromBars(symbol, bars) {
   const tsz = TICK_SIZES[symbol] || 1;
   seedTick(symbol, {
     price: last.c,
-    pre_close: last.o,
+    // 涨跌基准应为前一收盘，而非当日开盘
+    pre_close: bars.length >= 2 ? bars[bars.length - 2].c : last.o,
     open: last.o,
     high: last.h,
     low: last.l,

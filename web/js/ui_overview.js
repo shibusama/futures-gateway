@@ -2,10 +2,7 @@
  * ui_overview.js — 多账户概览页渲染。
  */
 import { store, totals, symbolSummary, accountSummary, loginBadge, acctFloat, emit } from "./store.js";
-import { esc } from "./util.js";
-
-const fmt = (v, d = 0) => Number(v || 0).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
-const cls = (v) => (v >= 0 ? "up" : "down");
+import { esc, fmt, cls } from "./util.js";
 
 export function renderOverview() {
   const t = totals();
