@@ -369,8 +369,12 @@ def run_desktop() -> int:
     def sync_native_titlebar(window_ref, *, dark: bool | None = None) -> None:
         apply_titlebar_theme(window_ref, dark=system_prefers_dark() if dark is None else dark)
 
-    window.events.before_show += lambda w: sync_native_titlebar(w)
-    window.events.shown += lambda w: sync_native_titlebar(w)
+    # pywebview 事件 handler 不固定是否传 window，用 *_args 兼容
+    def _sync_titlebar(*_args) -> None:
+        sync_native_titlebar(window)
+
+    window.events.before_show += _sync_titlebar
+    window.events.shown += _sync_titlebar
 
     runtime.tray = TrayController(on_show=runtime.show_window, on_quit=runtime.request_quit)
     runtime.tray.start()
