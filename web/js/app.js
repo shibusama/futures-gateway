@@ -165,6 +165,15 @@ function submitOrderFlow({ account, symbol, direction, offsetMode: forcedOffset,
 }
 
 /* ---------- 事件 ---------- */
+/** 单组事件绑定隔离：一组失败只记录原因，不再拖垮后续所有绑定 */
+function bindGroup(tag, fn) {
+  try {
+    fn();
+  } catch (err) {
+    console.error(`[bind] ${tag} 绑定失败：`, err);
+  }
+}
+
 function softRefresh() {
   // 重连后 onopen 会自动 query/status/subscribe；此处的 requestQuery 在 socket 未 OPEN 时会被丢弃
   reconnect();
@@ -177,98 +186,113 @@ function hardRefresh() {
 }
 
 function bindEvents() {
-  document.getElementById("nav-overview").addEventListener("click", () => showView("overview"));
-  document.getElementById("nav-trade").addEventListener("click", () => showView("trade"));
-  document.getElementById("nav-detail").addEventListener("click", () => showView("detail"));
-  document.getElementById("back-btn").addEventListener("click", () => showView("overview"));
+  bindGroup("导航", () => {
+    document.getElementById("nav-overview").addEventListener("click", () => showView("overview"));
+    document.getElementById("nav-trade").addEventListener("click", () => showView("trade"));
+    document.getElementById("nav-detail").addEventListener("click", () => showView("detail"));
+    document.getElementById("back-btn").addEventListener("click", () => showView("overview"));
 
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && store.view === "trade") showView("overview");
-  });
-  document.getElementById("theme-toggle").addEventListener("click", () => toggleTheme());
-  document.getElementById("reload-btn").addEventListener("click", () => {
-    hardRefresh();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "F5") {
-      e.preventDefault();
-      hardRefresh();
-    }
-  });
-
-  document.getElementById("sum-tab-symbol").addEventListener("click", () => { store.sumTab = "symbol"; render(); });
-  document.getElementById("sum-tab-account").addEventListener("click", () => { store.sumTab = "account"; render(); });
-
-  document.getElementById("sum-body-account").addEventListener("click", (e) => {
-    const row = e.target.closest("[data-acct]");
-    if (row) { store.activeAcct = row.getAttribute("data-acct"); showView("trade"); }
-  });
-
-  document.getElementById("acct-list").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-view]");
-    if (btn) { store.activeAcct = btn.getAttribute("data-view"); showView("trade"); }
-    const tradeBtn = e.target.closest("[data-trade]");
-    if (tradeBtn) { store.activeAcct = tradeBtn.getAttribute("data-trade"); showView("trade"); }
-  });
-
-  bindWatchlist("watchlist", "wl-add-input", "wl-add-btn", selectSymbol);
-  bindWatchlist("trade-quote-panel", "trade-wl-add-input", null, selectTradeSymbol);
-
-  document.getElementById("tf-tabs").addEventListener("click", (e) => {
-    const b = e.target.closest(".tf");
-    if (b) {
-      store.tf = b.getAttribute("data-tf");
-      delete store.barHistory[`${store.sel}_${store.tf}`];
-      fetchBarHistory(store.sel, store.tf);
-      rerenderChart();
-    }
-  });
-
-  bindOrderPanel("", selectSymbol);
-  bindOrderPanel("trade-", selectTradeSymbol);
-  bindTradeTicket();
-  initSimpleBars();
-
-  document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
-  document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
-  document.getElementById("trade-tab-pos").addEventListener("click", () => { store.tradeTab = "pos"; render(); });
-  document.getElementById("trade-tab-fills").addEventListener("click", () => { store.tradeTab = "fills"; render(); });
-  document.getElementById("trade-tab-stats").addEventListener("click", () => { store.tradeTab = "stats"; render(); });
-  document.getElementById("trade-tab-combo").addEventListener("click", () => { store.tradeTab = "combo"; render(); });
-
-  document.querySelectorAll('input[name="trade-pos-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      if (!el.checked) return;
-      store.tradePosMode = el.value;
-      render();
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && store.view === "trade") showView("overview");
     });
   });
-  document.getElementById("trade-pos-type").addEventListener("change", (e) => {
-    store.tradePosType = e.target.value;
-    render();
+
+  bindGroup("主题与刷新", () => {
+    document.getElementById("theme-toggle").addEventListener("click", () => toggleTheme());
+    document.getElementById("reload-btn").addEventListener("click", () => {
+      hardRefresh();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "F5") {
+        e.preventDefault();
+        hardRefresh();
+      }
+    });
   });
-  document.getElementById("trade-pos-exchange").addEventListener("change", (e) => {
-    store.tradePosExchange = e.target.value;
-    render();
+
+  bindGroup("概览", () => {
+    document.getElementById("sum-tab-symbol").addEventListener("click", () => { store.sumTab = "symbol"; render(); });
+    document.getElementById("sum-tab-account").addEventListener("click", () => { store.sumTab = "account"; render(); });
+
+    document.getElementById("sum-body-account").addEventListener("click", (e) => {
+      const row = e.target.closest("[data-acct]");
+      if (row) { store.activeAcct = row.getAttribute("data-acct"); showView("trade"); }
+    });
+
+    document.getElementById("acct-list").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-view]");
+      if (btn) { store.activeAcct = btn.getAttribute("data-view"); showView("trade"); }
+      const tradeBtn = e.target.closest("[data-trade]");
+      if (tradeBtn) { store.activeAcct = tradeBtn.getAttribute("data-trade"); showView("trade"); }
+    });
   });
-  document.getElementById("trade-pos-query").addEventListener("input", (e) => {
-    store.tradePosQuery = e.target.value;
-    if (store.view === "trade" && store.tradeTab === "pos") renderTrade();
+
+  bindGroup("行情列表/周期", () => {
+    bindWatchlist("watchlist", "wl-add-input", "wl-add-btn", selectSymbol);
+    bindWatchlist("trade-quote-panel", "trade-wl-add-input", null, selectTradeSymbol);
+
+    document.getElementById("tf-tabs").addEventListener("click", (e) => {
+      const b = e.target.closest(".tf");
+      if (b) {
+        store.tf = b.getAttribute("data-tf");
+        delete store.barHistory[`${store.sel}_${store.tf}`];
+        fetchBarHistory(store.sel, store.tf);
+        rerenderChart();
+      }
+    });
   });
-  document.getElementById("trade-combo-type").addEventListener("change", (e) => {
-    store.tradeComboType = e.target.value;
-    render();
+
+  bindGroup("下单面板", () => {
+    bindOrderPanel("", selectSymbol);
+    bindOrderPanel("trade-", selectTradeSymbol);
+    bindTradeTicket();
+    initSimpleBars();
   });
-  document.getElementById("trade-combo-query").addEventListener("input", (e) => {
-    store.tradeComboQuery = e.target.value;
-    if (store.view === "trade" && store.tradeTab === "combo") renderTrade();
+
+  bindGroup("明细页 tab", () => {
+    document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
+    document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
+    document.getElementById("trade-tab-pos").addEventListener("click", () => { store.tradeTab = "pos"; render(); });
+    document.getElementById("trade-tab-fills").addEventListener("click", () => { store.tradeTab = "fills"; render(); });
+    document.getElementById("trade-tab-stats").addEventListener("click", () => { store.tradeTab = "stats"; render(); });
+    document.getElementById("trade-tab-combo").addEventListener("click", () => { store.tradeTab = "combo"; render(); });
   });
-  document.getElementById("trade-close-ratio").addEventListener("change", (e) => {
-    store.tradeCloseRatio = parseInt(e.target.value, 10) || 100;
-  });
-  document.getElementById("trade-read-sltp").addEventListener("change", (e) => {
-    store.tradeReadManualSLTP = e.target.checked;
-    render();
+
+  bindGroup("交易页筛选器", () => {
+    document.querySelectorAll('input[name="trade-pos-mode"]').forEach((el) => {
+      el.addEventListener("change", () => {
+        if (!el.checked) return;
+        store.tradePosMode = el.value;
+        render();
+      });
+    });
+    document.getElementById("trade-pos-type").addEventListener("change", (e) => {
+      store.tradePosType = e.target.value;
+      render();
+    });
+    document.getElementById("trade-pos-exchange").addEventListener("change", (e) => {
+      store.tradePosExchange = e.target.value;
+      render();
+    });
+    document.getElementById("trade-pos-query").addEventListener("input", (e) => {
+      store.tradePosQuery = e.target.value;
+      if (store.view === "trade" && store.tradeTab === "pos") renderTrade();
+    });
+    document.getElementById("trade-combo-type").addEventListener("change", (e) => {
+      store.tradeComboType = e.target.value;
+      render();
+    });
+    document.getElementById("trade-combo-query").addEventListener("input", (e) => {
+      store.tradeComboQuery = e.target.value;
+      if (store.view === "trade" && store.tradeTab === "combo") renderTrade();
+    });
+    document.getElementById("trade-close-ratio").addEventListener("change", (e) => {
+      store.tradeCloseRatio = parseInt(e.target.value, 10) || 100;
+    });
+    document.getElementById("trade-read-sltp").addEventListener("change", (e) => {
+      store.tradeReadManualSLTP = e.target.checked;
+      render();
+    });
   });
 
   function runPosAction(fn) {
@@ -296,255 +320,269 @@ function bindEvents() {
     if (r.ok) render();
   }
 
-  document.getElementById("trade-act-counter-close").addEventListener("click", () => {
-    runPosAction((acc, sel, opts) => batchClosePositions(acc, sel, { ...opts, priceMode: "counterparty" }));
-  });
-  document.getElementById("trade-act-reverse").addEventListener("click", () => {
-    runPosAction((acc, sel, opts) => batchReversePositions(acc, sel, opts));
-  });
-  document.getElementById("trade-act-exercise").addEventListener("click", () => {
-    runPosAction((acc, sel) => batchExercisePositions(acc, sel));
-  });
-  document.getElementById("trade-act-hedge").addEventListener("click", () => {
-    runPosAction((acc, sel) => batchSelfHedgePositions(acc, sel));
-  });
-  document.getElementById("trade-act-rollover").addEventListener("click", () => {
-    if (store.conn !== "open") { toast("网关未连接"); return; }
-    const account = store.activeAcct;
-    const sel = selectedPositions(account);
-    if (!sel.length) { toast("请先勾选持仓"); return; }
-    document.getElementById("rollover-target").value = defaultRolloverTarget(sel);
-    document.getElementById("rollover-dialog").hidden = false;
-  });
-  document.getElementById("trade-combo-counter-close").addEventListener("click", () => {
-    runComboAction((acc, sel, opts) => batchClosePositions(acc, sel, { ...opts, priceMode: "counterparty" }));
-  });
-  document.getElementById("trade-combo-market-close").addEventListener("click", () => {
-    runComboAction((acc, sel, opts) => batchClosePositions(acc, sel, { ...opts, priceMode: "market" }));
-  });
-  document.getElementById("trade-combo-reverse").addEventListener("click", () => {
-    runComboAction((acc, sel, opts) => batchReversePositions(acc, sel, opts));
-  });
-  document.getElementById("trade-combo-help").addEventListener("click", () => {
-    toast("①持仓列表勾选持仓 → 加入自组合，填用户描述和份数；②本页点行选中 → 工具栏平仓/反手");
-  });
-  document.getElementById("trade-order-scope").addEventListener("change", (e) => {
-    store.tradeOrderScope = e.target.value;
-    render();
-  });
-  document.getElementById("trade-order-type").addEventListener("change", (e) => {
-    store.tradeOrderType = e.target.value;
-    render();
-  });
-  document.getElementById("trade-order-exchange").addEventListener("change", (e) => {
-    store.tradeOrderExchange = e.target.value;
-    render();
-  });
-  document.getElementById("trade-order-source").addEventListener("change", (e) => {
-    store.tradeOrderSource = e.target.value;
-    render();
-  });
-  document.getElementById("trade-order-query").addEventListener("input", (e) => {
-    store.tradeOrderQuery = e.target.value;
-    if (store.view === "trade") renderTrade();
-  });
-  document.getElementById("trade-order-chase").addEventListener("click", () => {
-    toast("市价追单功能开发中");
-  });
-  document.getElementById("trade-order-timer-cancel").addEventListener("click", () => {
-    toast("定时全撤功能开发中");
-  });
-  document.getElementById("trade-order-help").addEventListener("click", () => {
-    toast("点击委托行选中；「撤单」撤选中项，「全撤」撤销全部可撤委托");
-  });
-  document.getElementById("trade-order-cancel").addEventListener("click", () => {
-    if (store.conn !== "open") { toast("网关未连接"); return; }
-    const account = store.activeAcct;
-    if (!account) { toast("请先选择账户"); return; }
-    const sel = selectedTradeOrders(account).filter((o) => canCancelOrder(o) && o.order_sys_id);
-    if (!sel.length) { toast("请先点击表格行选择可撤委托"); return; }
-    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
-    let sent = 0;
-    sel.forEach((o) => {
-      if (sendCancel({
-        account,
-        order_sys_id: o.order_sys_id,
-        symbol: o.symbol,
-        exchange: o.exchange || exchangeOf(o.symbol),
-      })) sent += 1;
+  bindGroup("持仓操作", () => {
+    document.getElementById("trade-act-counter-close").addEventListener("click", () => {
+      runPosAction((acc, sel, opts) => batchClosePositions(acc, sel, { ...opts, priceMode: "counterparty" }));
     });
-    toast(sent ? `已发送 ${sent} 笔撤单` : "撤单未送达：与网关连接已断开，请重试");
-  });
-  document.getElementById("trade-order-cancel-all").addEventListener("click", () => {
-    if (store.conn !== "open") { toast("网关未连接"); return; }
-    const account = store.activeAcct;
-    if (!account) { toast("请先选择账户"); return; }
-    const sel = cancelableTradeOrders(account);
-    if (!sel.length) { toast("当前无可撤委托"); return; }
-    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
-    let sent = 0;
-    sel.forEach((o) => {
-      if (sendCancel({
-        account,
-        order_sys_id: o.order_sys_id,
-        symbol: o.symbol,
-        exchange: o.exchange || exchangeOf(o.symbol),
-      })) sent += 1;
+    document.getElementById("trade-act-reverse").addEventListener("click", () => {
+      runPosAction((acc, sel, opts) => batchReversePositions(acc, sel, opts));
     });
-    toast(sent ? `已发送 ${sent} 笔全撤` : "撤单未送达：与网关连接已断开，请重试");
+    document.getElementById("trade-act-exercise").addEventListener("click", () => {
+      runPosAction((acc, sel) => batchExercisePositions(acc, sel));
+    });
+    document.getElementById("trade-act-hedge").addEventListener("click", () => {
+      runPosAction((acc, sel) => batchSelfHedgePositions(acc, sel));
+    });
+    document.getElementById("trade-act-rollover").addEventListener("click", () => {
+      if (store.conn !== "open") { toast("网关未连接"); return; }
+      const account = store.activeAcct;
+      const sel = selectedPositions(account);
+      if (!sel.length) { toast("请先勾选持仓"); return; }
+      document.getElementById("rollover-target").value = defaultRolloverTarget(sel);
+      document.getElementById("rollover-dialog").hidden = false;
+    });
+    document.getElementById("trade-combo-counter-close").addEventListener("click", () => {
+      runComboAction((acc, sel, opts) => batchClosePositions(acc, sel, { ...opts, priceMode: "counterparty" }));
+    });
+    document.getElementById("trade-combo-market-close").addEventListener("click", () => {
+      runComboAction((acc, sel, opts) => batchClosePositions(acc, sel, { ...opts, priceMode: "market" }));
+    });
+    document.getElementById("trade-combo-reverse").addEventListener("click", () => {
+      runComboAction((acc, sel, opts) => batchReversePositions(acc, sel, opts));
+    });
+    document.getElementById("trade-combo-help").addEventListener("click", () => {
+      toast("①持仓列表勾选持仓 → 加入自组合，填用户描述和份数；②本页点行选中 → 工具栏平仓/反手");
+    });
   });
-  document.getElementById("trade-order-panel").addEventListener("click", (e) => {
-    const row = e.target.closest(".trade-order-row");
-    if (!row || store.tradeOrderTab !== "ord") return;
-    const key = row.getAttribute("data-order-key");
-    if (!key) return;
+
+  bindGroup("委托筛选/撤单", () => {
+    document.getElementById("trade-order-scope").addEventListener("change", (e) => {
+      store.tradeOrderScope = e.target.value;
+      render();
+    });
+    document.getElementById("trade-order-type").addEventListener("change", (e) => {
+      store.tradeOrderType = e.target.value;
+      render();
+    });
+    document.getElementById("trade-order-exchange").addEventListener("change", (e) => {
+      store.tradeOrderExchange = e.target.value;
+      render();
+    });
+    document.getElementById("trade-order-source").addEventListener("change", (e) => {
+      store.tradeOrderSource = e.target.value;
+      render();
+    });
+    document.getElementById("trade-order-query").addEventListener("input", (e) => {
+      store.tradeOrderQuery = e.target.value;
+      if (store.view === "trade") renderTrade();
+    });
+    document.getElementById("trade-order-chase").addEventListener("click", () => {
+      toast("市价追单功能开发中");
+    });
+    document.getElementById("trade-order-timer-cancel").addEventListener("click", () => {
+      toast("定时全撤功能开发中");
+    });
+    document.getElementById("trade-order-help").addEventListener("click", () => {
+      toast("点击委托行选中；「撤单」撤选中项，「全撤」撤销全部可撤委托");
+    });
+    document.getElementById("trade-order-cancel").addEventListener("click", () => {
+      if (store.conn !== "open") { toast("网关未连接"); return; }
+      const account = store.activeAcct;
+      if (!account) { toast("请先选择账户"); return; }
+      const sel = selectedTradeOrders(account).filter((o) => canCancelOrder(o) && o.order_sys_id);
+      if (!sel.length) { toast("请先点击表格行选择可撤委托"); return; }
+      if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+      let sent = 0;
+      sel.forEach((o) => {
+        if (sendCancel({
+          account,
+          order_sys_id: o.order_sys_id,
+          symbol: o.symbol,
+          exchange: o.exchange || exchangeOf(o.symbol),
+        })) sent += 1;
+      });
+      toast(sent ? `已发送 ${sent} 笔撤单` : "撤单未送达：与网关连接已断开，请重试");
+    });
+    document.getElementById("trade-order-cancel-all").addEventListener("click", () => {
+      if (store.conn !== "open") { toast("网关未连接"); return; }
+      const account = store.activeAcct;
+      if (!account) { toast("请先选择账户"); return; }
+      const sel = cancelableTradeOrders(account);
+      if (!sel.length) { toast("当前无可撤委托"); return; }
+      if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+      let sent = 0;
+      sel.forEach((o) => {
+        if (sendCancel({
+          account,
+          order_sys_id: o.order_sys_id,
+          symbol: o.symbol,
+          exchange: o.exchange || exchangeOf(o.symbol),
+        })) sent += 1;
+      });
+      toast(sent ? `已发送 ${sent} 笔全撤` : "撤单未送达：与网关连接已断开，请重试");
+    });
+    document.getElementById("trade-order-panel").addEventListener("click", (e) => {
+      const row = e.target.closest(".trade-order-row");
+      if (!row || store.tradeOrderTab !== "ord") return;
+      const key = row.getAttribute("data-order-key");
+      if (!key) return;
     const set = new Set(store.tradeOrderSelected || []);
     if (set.has(key)) set.delete(key);
     else set.add(key);
     store.tradeOrderSelected = [...set];
     renderTrade();
   });
-  document.getElementById("rollover-cancel").addEventListener("click", () => {
-    document.getElementById("rollover-dialog").hidden = true;
-  });
-  document.getElementById("rollover-backdrop").addEventListener("click", () => {
-    document.getElementById("rollover-dialog").hidden = true;
-  });
-  document.getElementById("rollover-confirm").addEventListener("click", () => {
-    if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
-    const account = store.activeAcct;
-    const sel = selectedPositions(account);
-    const target = document.getElementById("rollover-target").value.trim();
-    const r = batchRolloverPositions(account, sel, target, { ratio: store.tradeCloseRatio || 100 });
-    document.getElementById("rollover-dialog").hidden = true;
-    toast(r.ok ? r.msg : (r.msg || "移仓失败"));
-    if (r.ok) render();
-  });
-  document.getElementById("trade-add-combo").addEventListener("click", () => {
-    const account = store.activeAcct;
-    const sel = selectedPositions(account);
-    if (!sel.length) { toast("请先勾选持仓"); return; }
-    const name = window.prompt("用户描述（自组合备注名）", "我的组合");
-    if (name == null) return;
-    const ratioRaw = window.prompt("份数（该腿在组合中的比例，默认 1）", "1");
-    if (ratioRaw == null) return;
-    const ratio = parseInt(ratioRaw, 10) || 1;
-    const r = addPositionsToCombo(name, sel, { ratio });
-    toast(r.msg);
-    if (r.ok) {
-      store.tradeTab = "combo";
-      render();
-    }
   });
 
-  document.querySelectorAll('input[name="trade-fill-mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      if (!el.checked) return;
-      store.tradeFillMode = el.value;
-      render();
+  bindGroup("移仓/自组合", () => {
+    document.getElementById("rollover-cancel").addEventListener("click", () => {
+      document.getElementById("rollover-dialog").hidden = true;
+    });
+    document.getElementById("rollover-backdrop").addEventListener("click", () => {
+      document.getElementById("rollover-dialog").hidden = true;
+    });
+    document.getElementById("rollover-confirm").addEventListener("click", () => {
+      if (!repeatGuard()) { toast("操作过快，已忽略重复点击"); return; }
+      const account = store.activeAcct;
+      const sel = selectedPositions(account);
+      const target = document.getElementById("rollover-target").value.trim();
+      const r = batchRolloverPositions(account, sel, target, { ratio: store.tradeCloseRatio || 100 });
+      document.getElementById("rollover-dialog").hidden = true;
+      toast(r.ok ? r.msg : (r.msg || "移仓失败"));
+      if (r.ok) render();
+    });
+    document.getElementById("trade-add-combo").addEventListener("click", () => {
+      const account = store.activeAcct;
+      const sel = selectedPositions(account);
+      if (!sel.length) { toast("请先勾选持仓"); return; }
+      const name = window.prompt("用户描述（自组合备注名）", "我的组合");
+      if (name == null) return;
+      const ratioRaw = window.prompt("份数（该腿在组合中的比例，默认 1）", "1");
+      if (ratioRaw == null) return;
+      const ratio = parseInt(ratioRaw, 10) || 1;
+      const r = addPositionsToCombo(name, sel, { ratio });
+      toast(r.msg);
+      if (r.ok) {
+        store.tradeTab = "combo";
+        render();
+      }
     });
   });
-  document.getElementById("trade-fill-type").addEventListener("change", (e) => {
-    store.tradeFillType = e.target.value;
-    render();
-  });
-  document.getElementById("trade-fill-exchange").addEventListener("change", (e) => {
-    store.tradeFillExchange = e.target.value;
-    render();
-  });
-  document.getElementById("trade-fill-query").addEventListener("input", (e) => {
-    store.tradeFillQuery = e.target.value;
-    if (store.view === "trade" && store.tradeTab === "fills") renderTrade();
-  });
 
-  document.getElementById("trade-stats-type").addEventListener("change", (e) => {
-    store.tradeStatsType = e.target.value;
-    render();
-  });
-  document.getElementById("trade-stats-exchange").addEventListener("change", (e) => {
-    store.tradeStatsExchange = e.target.value;
-    render();
-  });
-  document.getElementById("trade-stats-query").addEventListener("input", (e) => {
-    store.tradeStatsQuery = e.target.value;
-    if (store.view === "trade" && store.tradeTab === "stats") renderTrade();
-  });
-  document.getElementById("trade-stats-risk-btn").addEventListener("click", () => {
-    toast("风险预警设置功能开发中");
-  });
-
-  document.getElementById("tables").addEventListener("click", (e) => bindCancelClick(e));
-  document.getElementById("trade-tables").addEventListener("click", (e) => {
-    const comboRow = e.target.closest(".trade-combo-row");
-    if (comboRow && store.tradeTab === "combo") {
-      const keys = (comboRow.getAttribute("data-pos-keys") || "").split(",").filter(Boolean);
-      keys.forEach((k) => {
-        const set = new Set(store.tradePosSelected || []);
-        if (set.has(k)) set.delete(k);
-        else set.add(k);
-        store.tradePosSelected = [...set];
+  bindGroup("成交/统计筛选", () => {
+    document.querySelectorAll('input[name="trade-fill-mode"]').forEach((el) => {
+      el.addEventListener("change", () => {
+        if (!el.checked) return;
+        store.tradeFillMode = el.value;
+        render();
       });
-      renderTrade();
-      return;
-    }
-    const chk = e.target.closest(".trade-pos-chk");
-    if (chk) {
-      const keys = (chk.getAttribute("data-pos-keys") || "").split(",").filter(Boolean);
-      keys.forEach((k) => togglePosSelection(k, chk.checked));
-      return;
-    }
-    const closeBtn = e.target.closest(".trade-close-pos");
-    if (closeBtn) {
-      store.sel = closeBtn.getAttribute("data-symbol");
-      store.dir = closeBtn.getAttribute("data-dir");
-      store.offsetMode = "close";
-      store.qty = parseInt(closeBtn.getAttribute("data-qty"), 10) || 1;
-      submitOrderFlow({
-        account: store.activeAcct,
-        symbol: store.sel,
-        direction: store.dir,
-        offsetMode: "close",
-      });
+    });
+    document.getElementById("trade-fill-type").addEventListener("change", (e) => {
+      store.tradeFillType = e.target.value;
       render();
-      return;
-    }
-    bindCancelClick(e);
+    });
+    document.getElementById("trade-fill-exchange").addEventListener("change", (e) => {
+      store.tradeFillExchange = e.target.value;
+      render();
+    });
+    document.getElementById("trade-fill-query").addEventListener("input", (e) => {
+      store.tradeFillQuery = e.target.value;
+      if (store.view === "trade" && store.tradeTab === "fills") renderTrade();
+    });
+
+    document.getElementById("trade-stats-type").addEventListener("change", (e) => {
+      store.tradeStatsType = e.target.value;
+      render();
+    });
+    document.getElementById("trade-stats-exchange").addEventListener("change", (e) => {
+      store.tradeStatsExchange = e.target.value;
+      render();
+    });
+    document.getElementById("trade-stats-query").addEventListener("input", (e) => {
+      store.tradeStatsQuery = e.target.value;
+      if (store.view === "trade" && store.tradeTab === "stats") renderTrade();
+    });
+    document.getElementById("trade-stats-risk-btn").addEventListener("click", () => {
+      toast("风险预警设置功能开发中");
+    });
   });
-  document.getElementById("trade-tables").addEventListener("change", (e) => {
-    if (e.target.id === "trade-pos-select-all") {
-      const checks = document.querySelectorAll(".trade-pos-chk");
-      const keys = [];
-      checks.forEach((c) => {
-        (c.getAttribute("data-pos-keys") || "").split(",").forEach((k) => {
-          if (k) keys.push(k);
+
+  bindGroup("表格", () => {
+    document.getElementById("tables").addEventListener("click", (e) => bindCancelClick(e));
+    document.getElementById("trade-tables").addEventListener("click", (e) => {
+      const comboRow = e.target.closest(".trade-combo-row");
+      if (comboRow && store.tradeTab === "combo") {
+        const keys = (comboRow.getAttribute("data-pos-keys") || "").split(",").filter(Boolean);
+        keys.forEach((k) => {
+          const set = new Set(store.tradePosSelected || []);
+          if (set.has(k)) set.delete(k);
+          else set.add(k);
+          store.tradePosSelected = [...set];
         });
-      });
-      setAllPosSelection(keys, e.target.checked);
-      render();
-    }
+        renderTrade();
+        return;
+      }
+      const chk = e.target.closest(".trade-pos-chk");
+      if (chk) {
+        const keys = (chk.getAttribute("data-pos-keys") || "").split(",").filter(Boolean);
+        keys.forEach((k) => togglePosSelection(k, chk.checked));
+        return;
+      }
+      const closeBtn = e.target.closest(".trade-close-pos");
+      if (closeBtn) {
+        store.sel = closeBtn.getAttribute("data-symbol");
+        store.dir = closeBtn.getAttribute("data-dir");
+        store.offsetMode = "close";
+        store.qty = parseInt(closeBtn.getAttribute("data-qty"), 10) || 1;
+        submitOrderFlow({
+          account: store.activeAcct,
+          symbol: store.sel,
+          direction: store.dir,
+          offsetMode: "close",
+        });
+        render();
+        return;
+      }
+      bindCancelClick(e);
+    });
+    document.getElementById("trade-tables").addEventListener("change", (e) => {
+      if (e.target.id === "trade-pos-select-all") {
+        const checks = document.querySelectorAll(".trade-pos-chk");
+        const keys = [];
+        checks.forEach((c) => {
+          (c.getAttribute("data-pos-keys") || "").split(",").forEach((k) => {
+            if (k) keys.push(k);
+          });
+        });
+        setAllPosSelection(keys, e.target.checked);
+        render();
+      }
+    });
   });
 
-  document.getElementById("trade-acct-select").addEventListener("change", (e) => {
-    store.activeAcct = e.target.value;
-    render();
-  });
-  document.getElementById("trade-query-btn").addEventListener("click", () => {
-    if (store.conn !== "open") { toast("网关未连接"); return; }
-    requestQuery();
-    toast("已请求刷新资金与持仓");
-  });
-  document.getElementById("trade-symbol-input").addEventListener("change", (e) => {
-    if (store.tradeSymbolLocked) {
-      e.target.value = store.sel;
-      return;
-    }
-    const code = e.target.value.trim();
-    if (!code) return;
-    const res = addWatchlistSymbol(code);
-    if (!res.ok && !store.ticks[code]) { toast(res.msg || "未知合约"); return; }
-    store.sel = res.ok ? res.codes.find((c) => c.toLowerCase() === code.toLowerCase()) || code : code;
-    if (store.conn === "open" && res.ok) sendSubscribe(res.codes);
-    render();
+  bindGroup("交易头部", () => {
+    document.getElementById("trade-acct-select").addEventListener("change", (e) => {
+      store.activeAcct = e.target.value;
+      render();
+    });
+    document.getElementById("trade-query-btn").addEventListener("click", () => {
+      if (store.conn !== "open") { toast("网关未连接"); return; }
+      requestQuery();
+      toast("已请求刷新资金与持仓");
+    });
+    document.getElementById("trade-symbol-input").addEventListener("change", (e) => {
+      if (store.tradeSymbolLocked) {
+        e.target.value = store.sel;
+        return;
+      }
+      const code = e.target.value.trim();
+      if (!code) return;
+      const res = addWatchlistSymbol(code);
+      if (!res.ok && !store.ticks[code]) { toast(res.msg || "未知合约"); return; }
+      store.sel = res.ok ? res.codes.find((c) => c.toLowerCase() === code.toLowerCase()) || code : code;
+      if (store.conn === "open" && res.ok) sendSubscribe(res.codes);
+      render();
+    });
   });
 }
 
