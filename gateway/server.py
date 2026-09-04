@@ -8,6 +8,7 @@ import webbrowser
 
 from aiohttp import web
 
+from .auth import SiteAuth, verify_site_auth
 from .config import load_config
 from .history import fetch_bars
 
@@ -44,11 +45,74 @@ def web_dir() -> str:
 
 WEB_DIR = web_dir()
 
+# 免鉴权的 API：登录 / 会话状态 / 登出。其余 /api/* 与 /ws 在“非本机 Host”时需先登录。
+OPEN_API = {"/api/login", "/api/session", "/api/logout"}
 
-def build_app(mgr):
-    middlewares = [dev_no_cache_middleware] if _dev_mode() else []
+
+def _auth_middleware(site_auth: SiteAuth):
+    @web.middleware
+    async def auth_middleware(request, handler):
+        if not site_auth.enabled:
+            return await handler(request)
+        path = request.path
+        protected = (path.startswith("/api/") and path not in OPEN_API) or path == "/ws"
+        if protected and not site_auth.is_authorized(request):
+            return web.json_response({"ok": False, "msg": "需要先登录"}, status=401)
+        return await handler(request)
+
+    return auth_middleware
+
+
+async def login_handler(request):
+    """POST /api/login  {password} —— 成功则种下 HttpOnly 会话 Cookie。"""
+    sa: SiteAuth = request.app["site_auth"]
+    if not sa.enabled:
+        return web.json_response({"ok": False, "msg": "未启用站点口令"}, status=400)
+    ip = sa.client_ip(request)
+    if sa.sessions.is_blocked(ip):
+        return web.json_response({"ok": False, "msg": "尝试次数过多，请稍后再试"}, status=429)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    pw = body.get("password") if isinstance(body, dict) else None
+    if not isinstance(pw, str) or not verify_site_auth(sa.site_auth, pw):
+        sa.sessions.record_failure(ip)
+        return web.json_response({"ok": False, "msg": "口令错误"}, status=401)
+    sa.sessions.clear_failures(ip)
+    resp = web.json_response({"ok": True})
+    sa.attach_session(resp)
+    return resp
+
+
+async def session_handler(request):
+    """GET /api/session —— 返回当前是否已通过鉴权（本机访问恒为 true）。"""
+    sa: SiteAuth = request.app["site_auth"]
+    return web.json_response({"ok": True, "authenticated": sa.is_authorized(request)})
+
+
+async def logout_handler(request):
+    """POST /api/logout —— 使当前会话失效。"""
+    sa: SiteAuth = request.app["site_auth"]
+    resp = web.json_response({"ok": True})
+    if sa.enabled:
+        sa.detach_session(request, resp)
+    return resp
+
+
+def build_app(mgr, config=None):
+    site_auth = SiteAuth((config or {}).get("site_auth"))
+    middlewares = [_auth_middleware(site_auth)]
+    if _dev_mode():
+        middlewares.append(dev_no_cache_middleware)
     app = web.Application(middlewares=middlewares)
     app["mgr"] = mgr
+    app["site_auth"] = site_auth
+
+    # 站点口令（登录 / 会话 / 登出）
+    app.router.add_post("/api/login", login_handler)
+    app.router.add_get("/api/session", session_handler)
+    app.router.add_post("/api/logout", logout_handler)
 
     # 静态前端
     app.router.add_get("/api/app-info", app_info_handler)
@@ -170,9 +234,15 @@ async def websocket_handler(request):
 
 
 def run_server(mgr, config):
-    app = build_app(mgr)
+    app = build_app(mgr, config)
     host = config.get("host", "127.0.0.1")
     port = int(config.get("port", 8765))
+
+    sa: SiteAuth = app["site_auth"]
+    if sa.enabled:
+        print("  站点口令：已启用（非本机 Host 访问需登录）")
+    else:
+        print("  站点口令：未启用（无鉴权，仅供本机/内网使用）")
 
     # 显式创建事件循环并绑定给账号管理器（Python 3.12+ 不再隐式提供默认循环）
     loop = asyncio.new_event_loop()

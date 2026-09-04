@@ -9,6 +9,7 @@ import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./
 import { renderTrade, selectTradeSymbol, refreshTradeLive, selectedTradeOrders, cancelableTradeOrders } from "./ui_trade.js?v=5";
 import { initOfflineDemo, isOfflineMode } from "./offline.js";
 import { initTheme, toggleTheme } from "./theme.js";
+import { ensureSession } from "./auth.js";
 import { bindAboutDialog } from "./about.js";
 import { initDesktopMenu } from "./desktop_menu.js";
 import { addWatchlistSymbol, removeWatchlistSymbol, canCancelOrder, exchangeOf, symbolMeta } from "./symbols.js";
@@ -752,14 +753,18 @@ initDesktopMenu();
 initTheme();
 window.__fgSoftRefresh = softRefresh;
 
-if (isOfflineMode()) {
-  initOfflineDemo();
-  render();
-} else {
-  connect();
-  render();
-}
-
+(async () => {
+  // 非本机 Host 访问时先验会话；未登录会跳转到登录页并中止后续初始化
+  const authed = await ensureSession();
+  if (!authed) return;
+  if (isOfflineMode()) {
+    initOfflineDemo();
+    render();
+  } else {
+    connect();
+    render();
+  }
+})();
 window.addEventListener("theme-change", () => {
   if (store.view === "detail") rerenderChart();
   render();

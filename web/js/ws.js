@@ -107,6 +107,7 @@ export function connect() {
     store.conn = "closed";
     store.reconnectAttempt += 1;
     emit({ type: "conn", status: "closed", attempt: store.reconnectAttempt, hadConnection });
+    checkAuthAndMaybeRedirect();
     scheduleReconnect();
   };
 
@@ -117,6 +118,22 @@ function scheduleReconnect() {
   clearTimeout(retryTimer);
   retryTimer = setTimeout(connect, reconnectDelay);
   reconnectDelay = Math.min(RECONNECT_MAX, Math.round(reconnectDelay * 1.4));
+}
+
+/** 服务端明确表示“未认证”（如会话失效/被登出）时，停止重连并跳登录页。 */
+async function checkAuthAndMaybeRedirect() {
+  try {
+    const res = await fetch("/api/session", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.authenticated === false) {
+      const dest = location.pathname + location.search || "/";
+      const safe = dest.startsWith("/") && !dest.startsWith("//") ? dest : "/";
+      location.replace(`/login.html?next=${encodeURIComponent(safe)}`);
+    }
+  } catch (_) {
+    /* 网关不可达：保持自动重连 */
+  }
 }
 
 /** 处理网关推来的各类事件，写入 store 并广播渲染 */

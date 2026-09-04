@@ -25,3 +25,4 @@ config.json.bak
 scripts/_*.py
 scripts/test_login.py
 scripts/flow/
+.claude/

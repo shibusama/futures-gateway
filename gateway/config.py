@@ -77,6 +77,7 @@ def normalize(cfg):
     cfg.setdefault("host", "127.0.0.1")
     cfg.setdefault("port", 8765)
     cfg.setdefault("accounts", [])
+    cfg.setdefault("site_auth", None)  # {salt, hash}；None = 站点口令未启用（仅本机访问）。勿存明文。
     for acc in cfg["accounts"]:
         acc.setdefault("broker_id", "9999")
         acc.setdefault("account_type", "simnow")

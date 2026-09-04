@@ -148,11 +148,21 @@ function maybeShowWaitHint() {
   }
 }
 
+function redirectToLogin() {
+  const next = encodeURIComponent("/loading.html");
+  location.replace(`/login.html?next=${next}`);
+}
+
 async function poll() {
   if (entered) return;
   maybeShowWaitHint();
   try {
     const res = await fetch("/api/boot-status");
+    if (res.status === 401) {
+      // 非本机 Host 且尚未登录：先去登录页
+      redirectToLogin();
+      return;
+    }
     if (!res.ok) throw new Error("boot-status " + res.status);
     const data = await res.json();
     const phase = applyStatus(data);
