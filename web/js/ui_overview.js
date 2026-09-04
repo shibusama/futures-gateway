@@ -2,6 +2,7 @@
  * ui_overview.js — 多账户概览页渲染。
  */
 import { store, totals, symbolSummary, accountSummary, loginBadge, acctFloat, emit } from "./store.js";
+import { esc } from "./util.js";
 
 const fmt = (v, d = 0) => Number(v || 0).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const cls = (v) => (v >= 0 ? "up" : "down");
@@ -24,26 +25,27 @@ export function renderOverview() {
   const list = store.accounts;
   let rows = "";
   list.forEach((acc) => {
+    const ae = esc(acc);
     const b = store.balances[acc];
     const st = store.login[acc];
     const badge = loginBadge(st, !!b);
     const stBadge = `<span class="badge ${badge.ok ? "b-ok" : "b-wait"}">${badge.text}</span>`;
     if (b) {
       const fpnl = acctFloat(acc);
-      rows += `<tr class="row-click" data-acct="${acc}">
-        <td>${acc}</td><td class="tab">${b.account_id || b.account || "—"}</td><td>SimNow</td>
+      rows += `<tr class="row-click" data-acct="${ae}">
+        <td>${ae}</td><td class="tab">${esc(b.account_id || b.account || "—")}</td><td>SimNow</td>
         <td>${stBadge}</td>
         <td class="tab">${fmt(b.balance)}</td>
         <td class="tab">${fmt(b.available)}</td>
         <td class="tab ${cls(fpnl)}">${fpnl >= 0 ? "+" : ""}${fmt(fpnl)}</td>
         <td class="tab">${fmt(b.margin)}</td>
-        <td><button class="close-btn" data-view="${acc}">下单</button></td></tr>`;
+        <td><button class="close-btn" data-view="${ae}">下单</button></td></tr>`;
     } else {
-      rows += `<tr class="row-click" data-acct="${acc}">
-        <td>${acc}</td><td class="tab">—</td><td>SimNow</td>
+      rows += `<tr class="row-click" data-acct="${ae}">
+        <td>${ae}</td><td class="tab">—</td><td>SimNow</td>
         <td>${stBadge}</td>
         <td class="tab">—</td><td class="tab">—</td><td class="tab">—</td><td class="tab">—</td>
-        <td><button class="close-btn" data-view="${acc}">下单</button></td></tr>`;
+        <td><button class="close-btn" data-view="${ae}">下单</button></td></tr>`;
     }
   });
   document.getElementById("acct-list").innerHTML = rows;
@@ -75,9 +77,10 @@ export function renderOverview() {
     const accts = accountSummary();
     let arows = "";
     accts.forEach((a) => {
+      const ae = esc(a.account);
       const net = a.long - a.short;
-      arows += `<tr class="row-click" data-acct="${a.account}">
-        <td>${a.account}</td>
+      arows += `<tr class="row-click" data-acct="${ae}">
+        <td>${ae}</td>
         <td class="tab">${a.long}</td>
         <td class="tab">${a.short}</td>
         <td class="tab ${cls(net) === "down" && net < 0 ? "down" : "up"}">${net}</td>

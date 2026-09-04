@@ -42,6 +42,17 @@ DEFAULT_CONFIG = {
 }
 
 
+def _restrict_config_permissions(path: str) -> None:
+    """收紧含明文口令的 config 权限（POSIX 下 0600）。Windows 的 chmod 只会置只读，
+    会导致后续保存失败，故跳过。"""
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def ensure_config():
     """若 config.json 不存在，从示例模板生成一份占位配置。"""
     path = config_path()
@@ -52,6 +63,7 @@ def ensure_config():
         else:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=2)
+    _restrict_config_permissions(path)
     return path
 
 
@@ -70,6 +82,7 @@ def save_config(cfg: dict) -> None:
         os.makedirs(parent, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(normalize(cfg), f, ensure_ascii=False, indent=2)
+    _restrict_config_permissions(path)
 
 
 def normalize(cfg):

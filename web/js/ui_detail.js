@@ -5,6 +5,7 @@ import { store, pxOf, emit, getTick, tickIsLive, acctFloat, positionLivePnl } fr
 import { buildCandles, shouldOverlayLive } from "./candles.js";
 import { fetchBarHistory } from "./history.js";
 import { getWatchlist, symbolMeta, canCancelOrder, exchangeOf } from "./symbols.js";
+import { esc } from "./util.js";
 
 function paintChart(el, candles, price, dec, tf, liveOnly) {
   if (!el) return;
@@ -168,7 +169,7 @@ function renderSymbolPanel(opts = {}) {
 function renderDetailHeader() {
   const account = stateAccount();
   if (!account) return;
-  document.getElementById("d-name").innerHTML = account;
+  document.getElementById("d-name").innerHTML = esc(account);
   document.getElementById("d-account-id").textContent = "SimNow";
   document.getElementById("d-stats").innerHTML = accountStats(account);
 }
@@ -275,7 +276,7 @@ function orderStatus(o) {
     case "1": return "部分成交";
     case "3": return "未成交";
     case "4": return "已撤销";
-    default: return o.status_msg || o.status;
+    default: return esc(o.status_msg || o.status) || "—";
   }
 }
 

@@ -164,6 +164,24 @@ def _verify_download(path: str, expected: str) -> None:
         raise OSError(f"更新包校验失败（SHA256 不匹配）。\n期望：{expected}\n实际：{actual}")
 
 
+def _safe_extract(zf: zipfile.ZipFile, dest: str) -> None:
+    """逐成员解压并校验路径，拒绝绝对路径与 '..' 穿越（防 zip-slip 任意文件写）。"""
+    dest_root = os.path.realpath(dest)
+    for member in zf.infolist():
+        name = member.filename.replace("\\", "/")
+        if name.startswith("/") or ".." in name.split("/"):
+            raise OSError(f"更新包包含非法路径：{member.filename!r}")
+        target = os.path.realpath(os.path.join(dest_root, name))
+        if target != dest_root and not target.startswith(dest_root + os.sep):
+            raise OSError(f"更新包路径越界：{member.filename!r}")
+        if member.is_dir():
+            os.makedirs(target, exist_ok=True)
+            continue
+        os.makedirs(os.path.dirname(target) or dest_root, exist_ok=True)
+        with zf.open(member, "r") as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+
 def _update_workdir() -> str:
     work = os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()), "FuturesTerminal", "update")
     os.makedirs(work, exist_ok=True)
@@ -235,7 +253,7 @@ def download_and_extract(info: dict) -> str:
         _verify_download(zip_path, info.get("sha256") or "")
         progress.set_phase("extract")
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(staging)
+            _safe_extract(zf, staging)
     finally:
         progress.close()
 

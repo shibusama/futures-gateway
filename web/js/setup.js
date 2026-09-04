@@ -2,6 +2,16 @@ function $(sel) {
   return document.querySelector(sel);
 }
 
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[c]);
+}
+
 let catalog = null;
 
 function isSettingsMode() {
@@ -46,14 +56,14 @@ function renderFrontCards(form) {
   const list = $("#front-list");
   if (!catalog || !list) return;
   list.innerHTML = catalog.simnow_fronts.map((p) => `
-    <button type="button" class="front-card${p.recommended ? " recommended" : ""}" data-id="${p.id}" role="radio" aria-checked="false">
+    <button type="button" class="front-card${p.recommended ? " recommended" : ""}" data-id="${esc(p.id)}" role="radio" aria-checked="false">
       <span class="front-card-head">
-        <strong>${p.label}</strong>
+        <strong>${esc(p.label)}</strong>
         ${p.recommended ? '<span class="tag">推荐</span>' : ""}
       </span>
-      <span class="front-hours">${p.hours}</span>
-      <span class="front-addr">交易 ${p.trade_front.replace("tcp://", "")}</span>
-      <span class="front-addr">行情 ${p.md_front.replace("tcp://", "")}</span>
+      <span class="front-hours">${esc(p.hours)}</span>
+      <span class="front-addr">交易 ${esc(p.trade_front || "").replace("tcp://", "")}</span>
+      <span class="front-addr">行情 ${esc(p.md_front || "").replace("tcp://", "")}</span>
     </button>`).join("");
 
   list.querySelectorAll(".front-card").forEach((btn) => {
@@ -65,7 +75,7 @@ function renderAccountTypes(form) {
   const sel = $("#account-type");
   if (!catalog || !sel) return;
   sel.innerHTML = catalog.account_types.map((t) =>
-    `<option value="${t.id}" ${t.enabled ? "" : "disabled"}>${t.label}${t.enabled ? "" : "（即将支持）"}</option>`).join("");
+    `<option value="${esc(t.id)}" ${t.enabled ? "" : "disabled"}>${esc(t.label)}${t.enabled ? "" : "（即将支持）"}</option>`).join("");
   sel.addEventListener("change", () => syncAccountTypeUI(form));
 }
 

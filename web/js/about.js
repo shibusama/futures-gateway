@@ -39,9 +39,12 @@ export async function openAboutDialog() {
   if (!aboutLoaded) {
     const info = await fetchAppInfo();
     $("#about-version").textContent = info.version || "—";
+    const github = String(info.github || "").trim();
+    const isHttp = /^https?:\/\//i.test(github);
+    const safe = isHttp ? github : "https://github.com/shibusama/futures-gateway";
     const link = $("#about-github");
-    link.href = info.github || "https://github.com/shibusama/futures-gateway";
-    link.textContent = info.github || "GitHub";
+    link.href = safe;
+    link.textContent = isHttp ? github : "GitHub";
     const desktopActions = $("#about-desktop-actions");
     if (desktopActions) desktopActions.hidden = !info.desktop;
     aboutLoaded = true;

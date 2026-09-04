@@ -4,6 +4,7 @@
 import { store, getTick, tickIsLive, acctFloat, positionLivePnl, emit, contractMult } from "./store.js";
 import { getWatchlist, symbolMeta, exchangeOf, canCancelOrder } from "./symbols.js";
 import { orderActionLabel, positionFor, counterpartyPrice } from "./order.js";
+import { esc } from "./util.js";
 import {
   positionKey, posDirLabel, filterPositions, filterComboPositions, positionMarketValue, getManualSLTP,
   groupPositionsByProduct, comboPositionRows, loadCombos, comboFormulaText,
@@ -204,7 +205,7 @@ function positionRowHtml(p, account, opts = {}) {
   return `<tr data-pos-key="${key}" data-pos-keys="${keysAttr}">
     <td class="chk"><input type="checkbox" class="trade-pos-chk" data-pos-keys="${keysAttr}"${allChecked ? " checked" : ""} /></td>
     ${opts.comboName !== undefined ? `<td>${opts.comboName}</td>` : ""}
-    <td>${account}</td>
+    <td>${esc(account)}</td>
     <td>${symCell}</td>
     <td class="${dir === "买" ? "up" : "down"}">${dir}</td>
     <td>${p.volume ?? 0}</td>
@@ -283,7 +284,7 @@ function renderTradeBar(account) {
   const sel = document.getElementById("trade-acct-select");
   if (sel && store.accounts.length) {
     sel.innerHTML = store.accounts.map(
-      (a) => `<option value="${a}"${a === account ? " selected" : ""}>${a}</option>`,
+      (a) => `<option value="${esc(a)}"${a === account ? " selected" : ""}>${esc(a)}</option>`,
     ).join("");
   }
   const b = store.balances[account];
@@ -292,7 +293,7 @@ function renderTradeBar(account) {
   document.getElementById("trade-funds-row").innerHTML = b ? `
     <tr>
       <td>1</td>
-      <td>${account}</td>
+      <td>${esc(account)}</td>
       <td class="tab">${fmt(b.balance + (fpnl - ((b.position_profit || 0) + (b.close_profit || 0))))}</td>
       <td class="tab ${cls(fpnl)}">${fpnl >= 0 ? "+" : ""}${fmt(fpnl)}</td>
       <td class="tab">${risk}</td>
@@ -508,7 +509,7 @@ function orderStatusLabel(o) {
     case "3": return "未成交";
     case "4": return "已撤销";
     case "5": return "错单";
-    default: return o.status_msg || o.status || "—";
+    default: return esc(o.status_msg || o.status || "—");
   }
 }
 
@@ -585,7 +586,7 @@ function tradeOrderRowHtml(o, account, idx) {
   return `<tr class="trade-order-row${selected ? " selected" : ""}" data-order-key="${key}"
     data-cancel-order="${o.order_sys_id || ""}" data-symbol="${o.symbol}" data-exchange="${o.exchange || exchangeOf(o.symbol)}">
     <td class="col-no tab">${idx + 1}</td>
-    <td>${account}</td>
+    <td>${esc(account)}</td>
     <td>${o.symbol}</td>
     <td class="${dir === "买" ? "up" : "down"}">${dir}</td>
     <td>${off}</td>
@@ -894,7 +895,7 @@ function comboRowHtml(p, account) {
   const floatPnl = positionLivePnl(p);
   const posAvg = p.position_cost ? (p.position_cost / (p.volume || 1)) : (p.open_price || 0);
   return `<tr class="trade-combo-row${selected ? " selected" : ""}" data-pos-key="${key}" data-pos-keys="${key}">
-    <td>${p.comboName || "—"}</td>
+    <td>${p.comboName ? esc(p.comboName) : "—"}</td>
     <td>${meta?.name || "—"}</td>
     <td>${p.symbol}</td>
     <td class="${dir === "买" ? "up" : "down"}">${dir}</td>
@@ -1006,7 +1007,7 @@ function renderTradeStats(account) {
   rows.forEach((g) => {
     html += `<tr>
       <td>${g.label}</td>
-      <td>${account}</td>
+      <td>${esc(account)}</td>
       <td>${g.total}</td>
       <td class="${cls(g.net)}">${g.net >= 0 ? "+" : ""}${g.net}</td>
       <td>${g.long}</td>
