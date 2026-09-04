@@ -6,7 +6,7 @@ import { connect, sendOrder, sendCancel, sendSubscribe, requestQuery, reconnect 
 import { fetchBarHistory } from "./history.js";
 import { renderOverview } from "./ui_overview.js";
 import { renderDetail, rerenderChart, selectSymbol, refreshDetailLive } from "./ui_detail.js";
-import { renderTrade, selectTradeSymbol, refreshTradeLive, selectedTradeOrders, cancelableTradeOrders } from "./ui_trade.js?v=2";
+import { renderTrade, selectTradeSymbol, refreshTradeLive, selectedTradeOrders, cancelableTradeOrders } from "./ui_trade.js?v=5";
 import { initOfflineDemo, isOfflineMode } from "./offline.js";
 import { initTheme, toggleTheme } from "./theme.js";
 import { bindAboutDialog } from "./about.js";
@@ -196,6 +196,7 @@ function bindEvents() {
   bindOrderPanel("", selectSymbol);
   bindOrderPanel("trade-", selectTradeSymbol);
   bindTradeTicket();
+  initSimpleBars();
 
   document.getElementById("tab-pos").addEventListener("click", () => { store.tab = "pos"; render(); });
   document.getElementById("tab-ord").addEventListener("click", () => { store.tab = "ord"; render(); });
@@ -509,7 +510,27 @@ function bindEvents() {
   });
 }
 
+function initSimpleBars() {
+  if (typeof window.SimpleBar !== "function") return;
+  document.querySelectorAll(".tbl-wrap, .trade-table-area").forEach((el) => {
+    if (el.dataset.sbInit) return;
+    el.dataset.sbInit = "1";
+    try { new window.SimpleBar(el, { autoHide: true }); } catch (err) { /* keep native */ }
+  });
+}
+
 function bindTradeTicket() {
+  // 下单板 / 三键下单板 tab 切换
+  const tabStd = document.getElementById("trade-ticket-tab-std");
+  const tabTriple = document.getElementById("trade-ticket-tab-triple");
+  const triplePanel = document.getElementById("trade-ticket-triple-panel");
+  function switchTicket(useTriple) {
+    tabStd?.classList.toggle("active", !useTriple);
+    tabTriple?.classList.toggle("active", useTriple);
+    if (triplePanel) triplePanel.hidden = !useTriple;
+  }
+  tabStd?.addEventListener("click", () => switchTicket(false));
+  tabTriple?.addEventListener("click", () => switchTicket(true));
   document.getElementById("trade-ticket-scope")?.addEventListener("change", (e) => {
     store.tradeTicketScope = e.target.value;
     render();

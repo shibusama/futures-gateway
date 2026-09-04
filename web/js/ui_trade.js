@@ -291,14 +291,21 @@ function renderTradeBar(account) {
   const risk = b && b.balance > 0 ? ((b.margin / b.balance) * 100).toFixed(1) + "%" : "—";
   document.getElementById("trade-funds-row").innerHTML = b ? `
     <tr>
+      <td>1</td>
       <td>${account}</td>
       <td class="tab">${fmt(b.balance + (fpnl - ((b.position_profit || 0) + (b.close_profit || 0))))}</td>
-      <td class="tab">${fmt(b.available)}</td>
       <td class="tab ${cls(fpnl)}">${fpnl >= 0 ? "+" : ""}${fmt(fpnl)}</td>
-      <td class="tab">${fmt(b.margin)}</td>
       <td class="tab">${risk}</td>
-      <td class="tab">${fmt(b.commission)}</td>
-    </tr>` : `<tr><td colspan="7" class="empty">等待资金回报…</td></tr>`;
+      <td class="tab">${fmt(b.balance)}</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+      <td class="tab">—</td>
+    </tr>` : `<tr><td colspan="14" class="empty">等待资金回报…</td></tr>`;
 }
 
 function acctPositionFloat(account) {
@@ -726,9 +733,11 @@ function renderTradeTicket(account) {
     : offset;
 
   const submitBtn = document.getElementById("trade-submit-btn");
-  submitBtn.textContent = "下单";
-  submitBtn.className = `ticket-submit ${store.dir === "buy" ? "buy" : "sell"}`;
-  submitBtn.title = `${orderActionLabel(store.dir, resolved === "close" ? "close" : "open")} ${store.qty} 手`;
+  if (submitBtn) {
+    submitBtn.textContent = "下单";
+    submitBtn.className = `ticket-submit ${store.dir === "buy" ? "buy" : "sell"}`;
+    submitBtn.title = `${orderActionLabel(store.dir, resolved === "close" ? "close" : "open")} ${store.qty} 手`;
+  }
 
   const hint = document.getElementById("trade-pos-hint");
   if (pos && pos.volume > 0) {

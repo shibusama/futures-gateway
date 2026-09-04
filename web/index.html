@@ -7,7 +7,8 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <title>期界 · 期货交易终端（CTP 网关版）</title>
-<link rel="stylesheet" href="css/styles.css?v=6" />
+<link rel="stylesheet" href="css/styles.css?v=10" />
+<link rel="stylesheet" href="css/simplebar.min.css?v=1" />
 </head>
 <body>
 <div class="app">
@@ -118,8 +119,9 @@
         <div class="tbl-wrap">
           <table class="trade-funds-table">
             <thead><tr>
-              <th>账户</th><th>权益</th><th>可用资金</th><th>浮动盈亏</th>
-              <th>占用保证金</th><th>风险度</th><th>手续费</th>
+              <th>序号</th><th>用户描述</th><th>客户权益</th><th>浮动盈亏</th><th>资金使用率</th>
+              <th>净值</th><th>权利金</th><th>下单冻结</th><th>持仓市值</th><th>期货市值</th>
+              <th>期权市值</th><th>多头期权市值</th><th>空头期权市值</th><th>质押金额</th>
             </tr></thead>
             <tbody id="trade-funds-row"></tbody>
           </table>
@@ -232,7 +234,7 @@
         <aside class="panel trade-ticket">
           <div class="ticket-tabs">
             <button type="button" id="trade-ticket-tab-std" class="ticket-tab active">下单板</button>
-            <button type="button" id="trade-ticket-tab-triple" class="ticket-tab" disabled title="开发中">三键下单板</button>
+            <button type="button" id="trade-ticket-tab-triple" class="ticket-tab">三键下单板</button>
           </div>
           <div class="ticket-body">
             <div class="ticket-top">
@@ -298,6 +300,54 @@
               <button id="trade-submit-btn" type="button" class="ticket-submit buy">下单</button>
               <button id="trade-cond-order" type="button" class="ticket-cond" disabled title="开发中">条件单</button>
             </div>
+
+          <!-- 三键下单板 tab 内容（覆盖层，由 tab 切换显示） -->
+          <div id="trade-ticket-triple-panel" class="ticket-triple-panel" hidden>
+            <div class="ticket-top">
+              <select class="ticket-scope" aria-label="委托范围">
+                <option value="all">全部</option>
+                <option value="working">可撤</option>
+                <option value="today">当日</option>
+              </select>
+              <button type="button" class="ticket-lock" title="锁定合约" aria-label="锁定合约" disabled>🔒</button>
+            </div>
+            <div class="ticket-symbol-line">
+              <input type="text" class="ticket-symbol-input" autocomplete="off" spellcheck="false" placeholder="rb2610" />
+              <label class="ticket-mini-check"><input type="checkbox" disabled /> 套保</label>
+              <label class="ticket-mini-check"><input type="checkbox" disabled /> 下单算法</label>
+            </div>
+
+            <div class="triple-row">
+              <div class="triple-left">
+                <label class="triple-check"><input type="checkbox" checked /> 撤原单</label>
+                <label class="triple-check"><input type="checkbox" checked /> 对价</label>
+                <label class="triple-check"><input type="checkbox" /> 挂价</label>
+              </div>
+              <div class="triple-right">
+                <div class="triple-qty">
+                  <span class="ticket-qty-label">数量</span>
+                  <div class="ticket-stepper">
+                    <button type="button" aria-label="减少手数">−</button>
+                    <input type="number" min="0" max="999" value="0" aria-label="下单手数" />
+                    <button type="button" aria-label="增加手数">+</button>
+                  </div>
+                  <span class="triple-unit">(手)</span>
+                </div>
+                <select class="triple-price"><option>对价</option><option>挂价</option></select>
+              </div>
+            </div>
+
+            <div class="triple-auto">
+              <label class="triple-check"><input type="checkbox" checked /> 自动开平</label>
+            </div>
+
+            <div class="ticket-keys">
+              <button type="button" class="ticket-key buy" title="买入开仓">买开 0 手</button>
+              <button type="button" class="ticket-key sell" title="卖出开仓">卖开 0 手</button>
+              <button type="button" class="ticket-key close" title="平仓">平仓 0 手</button>
+            </div>
+            <button type="button" class="ticket-triple-switch">切换至卖平</button>
+          </div>
           </div>
         </aside>
       </div>
@@ -516,6 +566,7 @@
   </div>
 
 </div>
-<script type="module" src="js/app.js?v=3"></script>
+<script src="js/vendor/simplebar.min.js"></script>
+<script type="module" src="js/app.js?v=5"></script>
 </body>
 </html>

@@ -195,6 +195,17 @@ small { color: var(--muted); font-weight: 400; }
 .stat-card span { font-size: 12px; color: var(--muted); }
 .stat-card b { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .tbl-wrap { overflow-x: auto; }
+/* 表格滚动条：鼠标不在上面时隐藏，悬停到表格上才显示（覆盖 tbl-wrap / trade-table-area） */
+.tbl-wrap::-webkit-scrollbar,
+.trade-table-area::-webkit-scrollbar { width: 10px; height: 10px; }
+.tbl-wrap::-webkit-scrollbar-track,
+.trade-table-area::-webkit-scrollbar-track { background: transparent; }
+.tbl-wrap::-webkit-scrollbar-thumb,
+.trade-table-area::-webkit-scrollbar-thumb { background: transparent; border-radius: 6px; }
+.tbl-wrap:hover::-webkit-scrollbar-thumb,
+.trade-table-area:hover::-webkit-scrollbar-thumb { background: var(--line); }
+/* SimpleBar 滚动条滑块：颜色调得更灰、更淡 */
+.simplebar-scrollbar::before { background: rgba(140, 142, 148, 0.42) !important; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: right; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
@@ -477,12 +488,21 @@ tr.row-click:hover { background: var(--surface2); }
 .ticket-tab.active { background: var(--surface); color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
 .ticket-tab:disabled { opacity: 0.5; cursor: not-allowed; }
 .ticket-body {
+  position: relative;
   padding: 8px 10px 10px;
   font-size: 12px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
+/* 三键下单板：覆盖 ticket-body 的独立面板，由 tab 切换显示 */
+.ticket-triple-panel {
+  position: absolute; inset: 0; z-index: 2;
+  background: var(--surface);
+  padding: 8px 10px 10px;
+  overflow-y: auto;
+}
+.ticket-triple-panel[hidden] { display: none; }
 .ticket-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .ticket-scope {
   flex: 1; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px;
@@ -576,6 +596,32 @@ tr.row-click:hover { background: var(--surface2); }
   border: 1px solid var(--line); background: var(--surface2); color: var(--muted);
   border-radius: 4px; padding: 10px 12px; font-size: 12px; cursor: not-allowed; white-space: nowrap;
 }
+.ticket-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.ticket-key {
+  border: 0; border-radius: 6px; padding: 12px 0; font-size: 14px; font-weight: 700;
+  color: #fff; cursor: pointer;
+}
+.ticket-key.buy { background: #e05d5d; }
+.ticket-key.sell { background: #3cb178; }
+.ticket-key.close { background: #5a8fd6; grid-column: 1 / -1; }
+.ticket-key:hover { filter: brightness(1.08); }
+.ticket-triple-switch {
+  width: 100%; margin-top: 8px; padding: 4px; text-align: center;
+  color: var(--accent); background: none; border: 0; font-size: 12px; cursor: pointer;
+}
+/* 三键面板选项区：左=撤原单/对价/挂价，右=数量/对价 */
+.triple-row { display: flex; gap: 8px; margin: 8px 0; }
+.triple-left { display: flex; flex-direction: column; gap: 6px; }
+.triple-right { display: flex; flex: 1; gap: 10px; align-items: center; justify-content: flex-end; }
+.triple-qty { display: flex; align-items: center; gap: 4px; }
+.triple-unit { font-size: 12px; color: var(--muted); }
+.triple-price {
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px;
+  background: var(--surface2); color: var(--text); font-size: 12px;
+}
+.triple-check { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text); cursor: pointer; }
+.triple-check input { accent-color: var(--accent); }
+.triple-auto { margin: 6px 0 0; }
 .trade-symbol-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
 .trade-symbol-row label { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 .trade-symbol-input {
