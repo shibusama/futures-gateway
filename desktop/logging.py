@@ -98,4 +98,12 @@ def export_diagnostics() -> str:
             path = os.path.join(root, name)
             if os.path.isfile(path):
                 zf.write(path, arcname=name)
+        try:
+            from .updater import apply_log_path
+
+            update_log = apply_log_path()
+            if os.path.isfile(update_log):
+                zf.write(update_log, arcname="update_apply.log")
+        except ImportError:
+            pass
     return out

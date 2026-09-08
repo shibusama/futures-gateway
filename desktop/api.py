@@ -122,7 +122,8 @@ class DesktopApi:
         try:
             from .updater import check_and_prompt
 
-            if check_and_prompt():
+            gateway_stop = self._runtime.stop_gateway_now if self._runtime is not None else None
+            if check_and_prompt(gateway_stop=gateway_stop):
                 if self._quit_callback is not None:
                     self._quit_callback()
                 elif self._window is not None:

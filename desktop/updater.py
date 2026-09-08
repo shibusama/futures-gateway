@@ -188,6 +188,11 @@ def _update_workdir() -> str:
     return work
 
 
+def apply_log_path() -> str:
+    """安装步骤日志（供诊断包与失败排查）。"""
+    return os.path.join(_update_workdir(), "apply.log")
+
+
 def _prepare_staging_dir(work: str) -> str:
     staging = os.path.join(work, "staging")
     if os.path.isdir(staging):
@@ -205,32 +210,169 @@ def _normalize_staging(staging: str) -> str:
     return staging
 
 
-def _apply_update(staging_dir: str, parent_pid: int | None = None) -> None:
-    app = app_root()
-    exe_path = os.path.join(app, "FuturesTerminal.exe")
-    bat_path = os.path.join(tempfile.gettempdir(), "futures_terminal_apply_update.bat")
-    staging = staging_dir.replace('"', "")
-    app_q = app.replace('"', "")
-    exe_q = exe_path.replace('"', "")
-    pid = parent_pid if parent_pid is not None else os.getpid()
-    bat = f"""@echo off
-chcp 65001 >nul
-set PID={pid}
-:wait
-tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
-if %errorlevel%==0 (
-  timeout /t 1 /nobreak >nul
-  goto wait
+# PowerShell 落地安装脚本模板：固定内容，路径/PID 全部以 -File 参数传入，
+# 避免旧版 batch 字符串拼接在路径含 & % ( ) 空格等字符时被破坏或截断。
+#
+# 流程（借鉴主流桌面更新器的常见做法：Chrome/VSCode/Squirrel 等）：
+#   1. 等主界面进程 + 网关子进程都真正退出（带超时，避免文件锁未释放就动手）
+#   2. 把旧安装目录整体 rename 到备份目录（而不是逐文件覆盖复制）——
+#      这一步要么整体成功，要么整体失败，不会出现"新旧文件混杂"的中间态
+#   3. 把新版本目录 rename/move 到安装目录
+#   4. 启动新版本并做存活检查（health check）
+#   5. 任何一步失败：自动回滚到备份、必要时重新拉起旧版本，并弹窗+写日志告知用户
+#      （不再是静默 exit，不会出现"程序莫名消失"）
+_APPLY_UPDATE_PS1 = r"""
+param(
+    [int]$MainPid = 0,
+    [int]$GatewayPid = 0,
+    [string]$AppDir,
+    [string]$StagingDir,
+    [string]$BackupDir,
+    [string]$ExeName = "FuturesTerminal.exe",
+    [string]$LogFile
 )
-robocopy "{staging}" "{app_q}" /E /IS /IT /NFL /NDL /NJH /NJS /R:5 /W:2
-if %ERRORLEVEL% GEQ 8 exit /b 1
-start "" "{exe_q}"
-del "%~f0"
+
+$ErrorActionPreference = "Stop"
+
+Add-Type -Name Win32Msg -Namespace FuturesTerminal -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+public static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+'@
+
+function Write-Log([string]$msg) {
+    $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
+    try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 } catch {}
+}
+
+function Show-Fail([string]$msg) {
+    Write-Log ("FAIL: " + $msg)
+    $full = $msg + "`n`n日志：" + $LogFile
+    # 0x1000 MB_SYSTEMMODAL | 0x10 MB_ICONERROR
+    [FuturesTerminal.Win32Msg]::MessageBoxW([IntPtr]::Zero, $full, "期界 · 更新失败", 0x1010) | Out-Null
+}
+
+function Wait-ProcExit([int]$targetPid, [int]$timeoutSec) {
+    if ($targetPid -le 0) { return $true }
+    $deadline = (Get-Date).AddSeconds($timeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $p = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+        if (-not $p) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return (-not (Get-Process -Id $targetPid -ErrorAction SilentlyContinue))
+}
+
+function Move-DirRetry([string]$from, [string]$to, [int]$retries) {
+    for ($i = 0; $i -lt $retries; $i++) {
+        try {
+            if (Test-Path $to) { Remove-Item $to -Recurse -Force -ErrorAction SilentlyContinue }
+            try {
+                Move-Item -Path $from -Destination $to -Force -ErrorAction Stop
+            } catch {
+                # Move-Item 对目录不支持跨磁盘卷（"must have identical roots"），
+                # 退化为拷贝+删除（staging 目录在 LOCALAPPDATA，可能与安装目录不同盘）。
+                Copy-Item -Path $from -Destination $to -Recurse -Force -ErrorAction Stop
+                Remove-Item -Path $from -Recurse -Force -ErrorAction Stop
+            }
+            return $true
+        } catch {
+            Write-Log ("move '{0}' -> '{1}' attempt {2} failed: {3}" -f $from, $to, $i, $_.Exception.Message)
+            Start-Sleep -Seconds 1
+        }
+    }
+    return $false
+}
+
+Write-Log ("=== apply-update start (main=$MainPid gateway=$GatewayPid) ===")
+
+if (-not (Wait-ProcExit $MainPid 30)) {
+    Show-Fail "主程序未能在 30 秒内退出，已取消本次更新（旧版本未受影响，可稍后重试）。"
+    exit 1
+}
+Write-Log "main process exited"
+
+if ($GatewayPid -gt 0 -and -not (Wait-ProcExit $GatewayPid 15)) {
+    Write-Log "gateway pid $GatewayPid 仍存活，尝试强制结束"
+    try { Start-Process -FilePath "taskkill.exe" -ArgumentList @("/PID", "$GatewayPid", "/F", "/T") -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue } catch {}
+    Start-Sleep -Seconds 1
+}
+Write-Log "gateway process confirmed stopped"
+
+if (-not (Move-DirRetry $AppDir $BackupDir 10)) {
+    Show-Fail "无法访问安装目录（可能仍被安全软件或残留进程占用）。旧版本未受影响，可稍后重试更新。"
+    exit 1
+}
+Write-Log "backed up old install to $BackupDir"
+
+if (-not (Move-DirRetry $StagingDir $AppDir 5)) {
+    Write-Log "install new version failed, rolling back"
+    Move-DirRetry $BackupDir $AppDir 5 | Out-Null
+    Show-Fail "安装新版本失败，已回滚到旧版本。"
+    exit 1
+}
+Write-Log "new version installed to $AppDir"
+
+$exePath = Join-Path $AppDir $ExeName
+$newProc = $null
+try {
+    $newProc = Start-Process -FilePath $exePath -PassThru -ErrorAction Stop
+} catch {
+    Write-Log ("start new exe failed: " + $_.Exception.Message)
+}
+
+Start-Sleep -Seconds 3
+$healthy = $false
+if ($newProc -ne $null) {
+    $check = Get-Process -Id $newProc.Id -ErrorAction SilentlyContinue
+    if ($check) { $healthy = $true }
+}
+
+if (-not $healthy) {
+    Write-Log "new version failed health check, rolling back and relaunching old version"
+    try { Remove-Item $AppDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+    Move-DirRetry $BackupDir $AppDir 5 | Out-Null
+    try { Start-Process -FilePath $exePath -ErrorAction SilentlyContinue } catch {}
+    Show-Fail "新版本启动失败，已自动回滚并重新启动旧版本。"
+    exit 1
+}
+
+Write-Log ("new version started ok (pid " + $newProc.Id + "), cleaning up backup")
+try { Remove-Item $BackupDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+Write-Log "=== apply-update done ==="
 """
-    with open(bat_path, "w", encoding="utf-8") as f:
-        f.write(bat)
+
+
+def _backup_dir_for(app: str) -> str:
+    parent = os.path.dirname(os.path.normpath(app)) or app
+    return os.path.join(parent, "_FuturesTerminal_backup")
+
+
+def _apply_update(staging_dir: str, parent_pid: int | None = None, gateway_pid: int | None = None) -> None:
+    app = app_root()
+    work = _update_workdir()
+    ps1_path = os.path.join(work, "apply_update.ps1")
+    # 带 BOM 写入：Windows PowerShell 5.1（非 pwsh core）若无 BOM，
+    # 会按系统 ANSI 代码页解析脚本文件，脚本里的中文会乱码甚至解析异常。
+    with open(ps1_path, "w", encoding="utf-8-sig") as f:
+        f.write(_APPLY_UPDATE_PS1)
+
+    pid = parent_pid if parent_pid is not None else os.getpid()
+    args = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-WindowStyle", "Hidden",
+        "-File", ps1_path,
+        "-MainPid", str(pid),
+        "-GatewayPid", str(gateway_pid or 0),
+        "-AppDir", app,
+        "-StagingDir", staging_dir,
+        "-BackupDir", _backup_dir_for(app),
+        "-ExeName", "FuturesTerminal.exe",
+        "-LogFile", apply_log_path(),
+    ]
     subprocess.Popen(
-        ["cmd.exe", "/c", bat_path],
+        args,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         close_fds=True,
     )
@@ -263,13 +405,19 @@ def download_and_extract(info: dict) -> str:
     return staging
 
 
-def run_update(info: dict) -> None:
+def run_update(info: dict, gateway_stop=None) -> None:
     staging = download_and_extract(info)
-    _apply_update(staging, parent_pid=os.getpid())
+    gateway_pid = gateway_stop() if gateway_stop is not None else None
+    _apply_update(staging, parent_pid=os.getpid(), gateway_pid=gateway_pid)
 
 
-def check_and_prompt(silent: bool = False) -> bool:
-    """If update available, prompt user. Returns True when app should exit."""
+def check_and_prompt(silent: bool = False, gateway_stop=None) -> bool:
+    """If update available, prompt user. Returns True when app should exit.
+
+    gateway_stop: 可选回调，在真正落地安装前调用以同步停掉网关子进程，
+    返回其 PID（或 None）供落地脚本再做一次兜底等待，避免网关仍占用安装目录里的
+    文件（CTP SDK / Python 运行时 DLL 等）导致安装失败。
+    """
     if "--no-update-check" in sys.argv:
         return False
     info = find_update()
@@ -298,7 +446,8 @@ def check_and_prompt(silent: bool = False) -> bool:
         return False
     try:
         staging = download_and_extract(info)
-        _apply_update(staging, parent_pid=os.getpid())
+        gateway_pid = gateway_stop() if gateway_stop is not None else None
+        _apply_update(staging, parent_pid=os.getpid(), gateway_pid=gateway_pid)
         show_message(
             "更新已下载。\n\n"
             "点击「确定」后程序将退出并完成安装，随后自动重启。\n"
